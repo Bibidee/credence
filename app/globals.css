@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --canvas: #F4EFE6;
+    --ink: #111111;
+    --ledger-black: #050505;
+    --trust-gold: #D6A84F;
+    --credit-blue: #2457FF;
+    --risk-red: #C8342D;
+    --repayment-green: #2E9D68;
+    --warning-amber: #F2A93B;
+    --panel-cream: #FFF8EA;
+    --deep-panel: #15130F;
+    --border-ink: rgba(17,17,17,0.16);
+    --muted-ink: rgba(17,17,17,0.56);
+    --default-grey: #8B8A84;
+  }
+}
+
+@theme {
+  --color-canvas: #F4EFE6;
+  --color-ink: #111111;
+  --color-ledger-black: #050505;
+  --color-trust-gold: #D6A84F;
+  --color-credit-blue: #2457FF;
+  --color-risk-red: #C8342D;
+  --color-repayment-green: #2E9D68;
+  --color-warning-amber: #F2A93B;
+  --color-panel-cream: #FFF8EA;
+  --color-deep-panel: #15130F;
+  --color-border-ink: rgba(17,17,17,0.16);
+  --color-muted-ink: rgba(17,17,17,0.56);
+  --color-default-grey: #8B8A84;
+
+  --font-heading: "Cabinet Grotesk", "Inter", sans-serif;
+  --font-body: "Sora", "Inter", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+  --font-financial: "Space Mono", monospace;
+  --font-stamp: "Chivo Mono", monospace;
+}
+
+html,
+body {
+  background-color: #F4EFE6;
+  color: #111111;
+  font-family: "Sora", "Inter", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Ledger table lines */
+.ledger-table th {
+  border-bottom: 2px solid #111111;
+  font-family: "Space Mono", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.ledger-table td {
+  border-bottom: 1px solid rgba(17,17,17,0.12);
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+/* Decision stamp */
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border: 2px solid currentColor;
+  font-family: "Space Mono", monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+/* Passport card */
+.passport-card {
+  background: #FFF8EA;
+  border: 1.5px solid #111111;
+}
+
+/* Credit rail sidebar */
+.credit-rail {
+  background: #050505;
+  color: #F4EFE6;
+  border-right: 1.5px solid rgba(244,239,230,0.08);
+}
+
+/* Panel */
+.panel {
+  background: #FFF8EA;
+  border: 1px solid rgba(17,17,17,0.16);
+}
+
+/* Deep panel */
+.deep-panel {
+  background: #15130F;
+  color: #F4EFE6;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(17,17,17,0.2);
+  border-radius: 2px;
+}
