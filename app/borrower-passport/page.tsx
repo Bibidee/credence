@@ -9,6 +9,9 @@ import { useWallet } from "@/lib/context/WalletContext";
 import { useCredence } from "@/lib/context/CredenceContext";
 import { shortAddress } from "@/lib/utils/format";
 import { hashObject } from "@/lib/credence/evidenceHasher";
+import { getClientReady } from "@/lib/genlayer/client";
+import { getContractAddress } from "@/lib/genlayer/contract";
+import { waitForTx } from "@/lib/genlayer/txWaiter";
 import { User, Lock, CheckCircle, Clock, Shield } from "lucide-react";
 import { motion } from "framer-motion";
 import type { Borrower } from "@/lib/genlayer/types";
@@ -18,7 +21,8 @@ export default function BorrowerPassportPage() {
   const { borrowers, reviews, appeals, addBorrower } = useCredence();
   const [alias, setAlias] = useState("");
   const [creating, setCreating] = useState(false);
-  const [created, setCreated] = useState(false);
+  const [txStatus, setTxStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const connected = borrowers.find((b) => b.wallet.toLowerCase() === address?.toLowerCase());
   const myReviews = reviews.filter((r) => r.borrowerId === connected?.id);
@@ -27,10 +31,28 @@ export default function BorrowerPassportPage() {
   async function handleCreate() {
     if (!address || !alias.trim()) return;
     setCreating(true);
+    setError(null);
+    setTxStatus("Preparing transaction…");
     try {
+      const borrowerId = `borrower_${Date.now()}`;
       const profileHash = await hashObject({ wallet: address, alias, createdAt: new Date().toISOString() });
+      const profileJson = JSON.stringify({ wallet: address, alias: alias.trim() });
+
+      const client = await getClientReady();
+      setTxStatus("Waiting for wallet signature…");
+
+      const txHash = await (client as any).writeContract({
+        address: getContractAddress(),
+        functionName: "register_borrower",
+        args: [borrowerId, profileJson, profileHash],
+        account: address,
+      });
+
+      setTxStatus("Submitted — waiting for GenLayer consensus…");
+      await waitForTx(txHash as `0x${string}`);
+
       const borrower: Borrower = {
-        id: `borrower_${Date.now()}`,
+        id: borrowerId,
         wallet: address,
         alias: alias.trim(),
         profileHash,
@@ -41,7 +63,10 @@ export default function BorrowerPassportPage() {
         createdAt: new Date().toISOString(),
       };
       addBorrower(borrower);
-      setCreated(true);
+      setTxStatus(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Transaction failed");
+      setTxStatus(null);
     } finally {
       setCreating(false);
     }
@@ -59,7 +84,7 @@ export default function BorrowerPassportPage() {
     );
   }
 
-  if (!connected && !created) {
+  if (!connected) {
     return (
       <AppShell title="Borrower Passport">
         <div className="p-6 max-w-lg mx-auto mt-12">
@@ -88,8 +113,10 @@ export default function BorrowerPassportPage() {
               <div className="flex items-center gap-2"><Lock size={11} /> Raw identity documents are never stored on-chain.</div>
               <div className="flex items-center gap-2"><Lock size={11} /> Only your profile hash and GenLayer credit decisions are stored.</div>
             </div>
+            {txStatus && <p className="text-[12px] text-[#2457FF] font-financial">{txStatus}</p>}
+            {error && <p className="text-[12px] text-[#C8342D] font-financial">{error}</p>}
             <Button onClick={handleCreate} disabled={creating || !alias.trim()} className="w-full justify-center">
-              {creating ? "Creating…" : "Create Passport"}
+              {creating ? txStatus ?? "Processing…" : "Create Passport"}
             </Button>
           </div>
         </div>
@@ -97,32 +124,24 @@ export default function BorrowerPassportPage() {
     );
   }
 
-  const borrower = connected ?? borrowers[0];
+  const borrower = connected;
 
   return (
     <AppShell title="Borrower Passport">
       <div className="p-6 max-w-3xl mx-auto space-y-5">
-        {/* Passport card */}
-        <motion.div
-          className="passport-card p-6"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
+        <motion.div className="passport-card p-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex items-start justify-between mb-5">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-8 h-8 rounded-full bg-[rgba(17,17,17,0.08)] flex items-center justify-center">
-                  <User size={16} className="text-ink" />
-                </div>
-                <div>
-                  <p className="font-heading font-bold text-[20px] text-ink">{borrower.alias}</p>
-                  <p className="text-[11px] font-financial text-muted-ink">{shortAddress(borrower.wallet)}</p>
-                </div>
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-8 h-8 rounded-full bg-[rgba(17,17,17,0.08)] flex items-center justify-center">
+                <User size={16} className="text-ink" />
+              </div>
+              <div>
+                <p className="font-heading font-bold text-[20px] text-ink">{borrower.alias}</p>
+                <p className="text-[11px] font-financial text-muted-ink">{shortAddress(borrower.wallet)}</p>
               </div>
             </div>
             <CreditTierBadge tier={borrower.currentTier} />
           </div>
-
           <div className="grid grid-cols-4 gap-4 pt-4 border-t border-[rgba(17,17,17,0.1)]">
             {[
               { label: "Reviews", value: borrower.reviewCount.toString() },
@@ -138,13 +157,11 @@ export default function BorrowerPassportPage() {
           </div>
         </motion.div>
 
-        {/* Profile hash */}
         <div className="panel p-4">
           <p className="text-[10px] font-financial uppercase tracking-widest text-muted-ink mb-2">Profile Hash</p>
           <p className="font-mono text-[11px] text-muted-ink break-all">{borrower.profileHash}</p>
         </div>
 
-        {/* Privacy notice */}
         <div className="border border-[rgba(214,168,79,0.3)] bg-[rgba(214,168,79,0.04)] p-4 flex items-start gap-3">
           <Shield size={15} className="text-[#D6A84F] shrink-0 mt-0.5" />
           <div className="text-[12px] text-muted-ink space-y-1">
@@ -153,7 +170,6 @@ export default function BorrowerPassportPage() {
           </div>
         </div>
 
-        {/* Credit review history */}
         <div className="panel">
           <div className="px-4 py-3 border-b border-[rgba(17,17,17,0.1)]">
             <p className="text-[11px] font-financial uppercase tracking-widest text-muted-ink">Credit Review History</p>
@@ -185,7 +201,6 @@ export default function BorrowerPassportPage() {
           )}
         </div>
 
-        {/* Upgrade path */}
         <div className="panel p-4">
           <p className="text-[10px] font-financial uppercase tracking-widest text-muted-ink mb-3">Upgrade Path</p>
           <div className="flex items-center gap-2">
@@ -196,11 +211,7 @@ export default function BorrowerPassportPage() {
               const isCurrent = i === currentIdx;
               return (
                 <div key={tier} className="flex items-center gap-2">
-                  <div
-                    className={`w-5 h-5 flex items-center justify-center text-[9px] font-bold ${
-                      isCurrent ? "bg-[#D6A84F] text-[#15130F]" : isPast ? "bg-[#2E9D68] text-white" : "bg-[rgba(17,17,17,0.08)] text-muted-ink"
-                    }`}
-                  >
+                  <div className={`w-5 h-5 flex items-center justify-center text-[9px] font-bold ${isCurrent ? "bg-[#D6A84F] text-[#15130F]" : isPast ? "bg-[#2E9D68] text-white" : "bg-[rgba(17,17,17,0.08)] text-muted-ink"}`}>
                     {isPast ? <CheckCircle size={10} /> : isCurrent ? <Clock size={10} /> : i}
                   </div>
                   {i < 5 && <div className={`h-0.5 w-6 ${isPast ? "bg-[#2E9D68]" : "bg-[rgba(17,17,17,0.1)]"}`} />}
@@ -208,9 +219,7 @@ export default function BorrowerPassportPage() {
               );
             })}
           </div>
-          <p className="text-[11px] text-muted-ink mt-3">
-            Repay on time to qualify for tier upgrades. Each tier reduces the minimum collateral requirement.
-          </p>
+          <p className="text-[11px] text-muted-ink mt-3">Repay on time to qualify for tier upgrades. Each tier reduces the minimum collateral requirement.</p>
         </div>
       </div>
     </AppShell>

@@ -7,6 +7,9 @@ import Badge from "@/components/ui/Badge";
 import { useCredence } from "@/lib/context/CredenceContext";
 import { useWallet } from "@/lib/context/WalletContext";
 import { hashObject } from "@/lib/credence/evidenceHasher";
+import { getClientReady } from "@/lib/genlayer/client";
+import { getContractAddress } from "@/lib/genlayer/contract";
+import { waitForTx } from "@/lib/genlayer/txWaiter";
 import { Building2, Plus, X } from "lucide-react";
 import type { LenderPool, RiskAppetite } from "@/lib/genlayer/types";
 import { motion, AnimatePresence } from "framer-motion";
@@ -21,17 +24,47 @@ export default function LenderPoolsPage() {
   const { address } = useWallet();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
-    name: "", asset: "USDC", maxLoanAmount: "1000", maxDurationDays: 60, riskAppetite: "BALANCED" as RiskAppetite, minimumTier: "TIER_1_TRIAL",
+    name: "", asset: "USDC", maxLoanAmount: "1000", maxDurationDays: 60,
+    riskAppetite: "BALANCED" as RiskAppetite, minimumTier: "TIER_1_TRIAL",
   });
   const [creating, setCreating] = useState(false);
+  const [txStatus, setTxStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleCreate() {
     if (!address || !form.name) return;
     setCreating(true);
+    setError(null);
+    setTxStatus("Preparing transaction…");
     try {
+      const poolId = `pool_${Date.now()}`;
       const riskPolicyHash = await hashObject({ pool: form.name, asset: form.asset, time: Date.now() });
+
+      const profileJson = JSON.stringify({
+        owner: address,
+        name: form.name,
+        asset: form.asset,
+        minimumTier: form.minimumTier,
+        maxLoanAmount: `${form.maxLoanAmount} ${form.asset}`,
+        maxDurationDays: form.maxDurationDays,
+        riskAppetite: form.riskAppetite,
+      });
+
+      const client = await getClientReady();
+      setTxStatus("Waiting for wallet signature…");
+
+      const txHash = await (client as any).writeContract({
+        address: getContractAddress(),
+        functionName: "register_lender_pool",
+        args: [poolId, profileJson, riskPolicyHash],
+        account: address,
+      });
+
+      setTxStatus("Transaction submitted — waiting for GenLayer consensus…");
+      await waitForTx(txHash as `0x${string}`);
+
       const pool: LenderPool = {
-        id: `pool_${Date.now()}`,
+        id: poolId,
         owner: address,
         name: form.name,
         asset: form.asset,
@@ -42,9 +75,14 @@ export default function LenderPoolsPage() {
         riskAppetite: form.riskAppetite,
         createdAt: new Date().toISOString(),
       };
+
       addPool(pool);
+      setTxStatus(null);
       setShowForm(false);
       setForm({ name: "", asset: "USDC", maxLoanAmount: "1000", maxDurationDays: 60, riskAppetite: "BALANCED", minimumTier: "TIER_1_TRIAL" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Transaction failed");
+      setTxStatus(null);
     } finally {
       setCreating(false);
     }
@@ -55,7 +93,7 @@ export default function LenderPoolsPage() {
       <div className="p-6 space-y-5">
         <div className="flex items-center justify-between">
           <p className="text-[13px] text-muted-ink">{pools.length} pools registered</p>
-          <Button onClick={() => setShowForm(true)} size="sm">
+          <Button onClick={() => { setShowForm(true); setError(null); setTxStatus(null); }} size="sm">
             <Plus size={13} /> New Pool
           </Button>
         </div>
@@ -111,14 +149,30 @@ export default function LenderPoolsPage() {
                   </select>
                 </div>
               </div>
-              <Button onClick={handleCreate} disabled={creating || !form.name} size="sm">
-                {creating ? "Creating…" : "Create Pool"}
+
+              {txStatus && (
+                <p className="text-[12px] text-[#2457FF] font-financial">{txStatus}</p>
+              )}
+              {error && (
+                <p className="text-[12px] text-[#C8342D] font-financial">{error}</p>
+              )}
+
+              <Button onClick={handleCreate} disabled={creating || !form.name || !address} size="sm">
+                {creating ? txStatus ?? "Processing…" : "Create Pool"}
               </Button>
+              {!address && (
+                <p className="text-[11px] text-muted-ink">Connect your wallet first.</p>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
 
         <div className="space-y-3">
+          {pools.length === 0 && !showForm && (
+            <div className="panel p-10 text-center text-muted-ink text-[13px]">
+              No pools registered yet. Create the first one.
+            </div>
+          )}
           {pools.map((pool) => (
             <div key={pool.id} className="panel p-5">
               <div className="flex items-start justify-between mb-3">
@@ -148,6 +202,10 @@ export default function LenderPoolsPage() {
                   <p className="text-[9px] font-financial uppercase tracking-widest text-muted-ink">Min Tier</p>
                   <p className="font-bold text-[13px] text-[#2457FF]">{pool.minimumTier.replace("TIER_","T").replace("_"," ")}</p>
                 </div>
+              </div>
+              <div className="mt-3 pt-3 border-t border-[rgba(17,17,17,0.08)]">
+                <p className="text-[9px] font-financial uppercase tracking-widest text-muted-ink mb-1">Risk Policy Hash</p>
+                <p className="text-[11px] font-mono text-muted-ink break-all">{pool.riskPolicyHash}</p>
               </div>
             </div>
           ))}

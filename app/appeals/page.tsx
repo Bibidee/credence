@@ -7,27 +7,31 @@ import AppShell from "@/components/layout/AppShell";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import { useCredence } from "@/lib/context/CredenceContext";
+import { useWallet } from "@/lib/context/WalletContext";
+import { getClientReady } from "@/lib/genlayer/client";
+import { getContractAddress } from "@/lib/genlayer/contract";
+import { waitForTx } from "@/lib/genlayer/txWaiter";
 import { Scale, Plus, X, Loader2 } from "lucide-react";
 import type { CreditAppeal } from "@/lib/genlayer/types";
 import { format } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 
 const APPEAL_OUTCOME_COLOR: Record<string, string> = {
-  UPHELD: "grey",
-  TIER_UPGRADED: "green",
-  TIER_DOWNGRADED: "red",
-  COLLATERAL_RATIO_REDUCED: "green",
-  COLLATERAL_RATIO_INCREASED: "red",
-  REVIEW_AGAIN_WITH_MORE_EVIDENCE: "amber",
-  ESCALATED_TO_HUMAN: "grey",
+  UPHELD: "grey", TIER_UPGRADED: "green", TIER_DOWNGRADED: "red",
+  COLLATERAL_RATIO_REDUCED: "green", COLLATERAL_RATIO_INCREASED: "red",
+  REVIEW_AGAIN_WITH_MORE_EVIDENCE: "amber", ESCALATED_TO_HUMAN: "grey",
 };
 
 function AppealsContent() {
   const params = useSearchParams();
   const prefilledReviewId = params.get("reviewId") ?? "";
-  const { appeals, reviews, borrowers, addAppeal, updateAppeal } = useCredence();
+  const { appeals, reviews, addAppeal, updateAppeal } = useCredence();
+  const { address } = useWallet();
   const [showForm, setShowForm] = useState(!!prefilledReviewId);
+  const [submitting, setSubmitting] = useState(false);
   const [reviewing, setReviewing] = useState<string | null>(null);
+  const [txStatus, setTxStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
     reviewId: prefilledReviewId,
     appealReason: "",
@@ -36,43 +40,96 @@ function AppealsContent() {
     requestedOutcome: "COLLATERAL_RATIO_REDUCED",
   });
 
-  async function handleSubmit() {
-    if (!form.reviewId || !form.appealReason) return;
-    const appeal: CreditAppeal = {
-      id: `appeal_${Date.now()}`,
-      reviewId: form.reviewId,
-      appealReason: form.appealReason,
-      missingContext: form.missingContext,
-      counterEvidenceSummary: form.counterEvidenceSummary,
-      requestedOutcome: form.requestedOutcome,
-      additionalEvidenceHashes: [],
-      status: "SUBMITTED",
-      createdAt: new Date().toISOString(),
-    };
-    addAppeal(appeal);
-    setShowForm(false);
-    setForm({ reviewId: "", appealReason: "", missingContext: "", counterEvidenceSummary: "", requestedOutcome: "COLLATERAL_RATIO_REDUCED" });
-  }
-
-  async function handleReview(id: string) {
-    setReviewing(id);
-    await new Promise((r) => setTimeout(r, 4000));
-    updateAppeal(id, {
-      outcome: "COLLATERAL_RATIO_REDUCED",
-      reasoning: "The appeal introduces additional context not present in the original review. The counter-evidence provided supports a reduction in the recommended collateral ratio. The borrower's explanation is consistent with the evidence submitted. Appeal partially upheld.",
-      status: "REVIEWED",
-    });
-    setReviewing(null);
-  }
-
   const approvedReviews = reviews.filter((r) => r.status === "REVIEWED");
+
+  async function handleSubmit() {
+    if (!address || !form.reviewId || !form.appealReason) return;
+    setSubmitting(true);
+    setError(null);
+    setTxStatus("Waiting for wallet signature…");
+    try {
+      const appealId = `appeal_${Date.now()}`;
+      const appealPacket = JSON.stringify({
+        appealReason: form.appealReason,
+        missingContext: form.missingContext,
+        counterEvidenceSummary: form.counterEvidenceSummary,
+        requestedOutcome: form.requestedOutcome,
+      });
+
+      const client = await getClientReady();
+      const txHash = await (client as any).writeContract({
+        address: getContractAddress(),
+        functionName: "submit_credit_appeal",
+        args: [appealId, form.reviewId, appealPacket],
+        account: address,
+      });
+
+      setTxStatus("Submitted — waiting for GenLayer consensus…");
+      await waitForTx(txHash as `0x${string}`);
+
+      const appeal: CreditAppeal = {
+        id: appealId,
+        reviewId: form.reviewId,
+        appealReason: form.appealReason,
+        missingContext: form.missingContext,
+        counterEvidenceSummary: form.counterEvidenceSummary,
+        requestedOutcome: form.requestedOutcome,
+        additionalEvidenceHashes: [],
+        status: "SUBMITTED",
+        createdAt: new Date().toISOString(),
+      };
+      addAppeal(appeal);
+      setShowForm(false);
+      setTxStatus(null);
+      setForm({ reviewId: "", appealReason: "", missingContext: "", counterEvidenceSummary: "", requestedOutcome: "COLLATERAL_RATIO_REDUCED" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Transaction failed");
+      setTxStatus(null);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleReview(a: CreditAppeal) {
+    if (!address) return;
+    setReviewing(a.id);
+    setError(null);
+    try {
+      const client = await getClientReady();
+      const txHash = await (client as any).writeContract({
+        address: getContractAddress(),
+        functionName: "review_credit_appeal",
+        args: [a.id],
+        account: address,
+      });
+
+      await waitForTx(txHash as `0x${string}`);
+
+      const result = await (client as any).readContract({
+        address: getContractAddress(),
+        functionName: "get_credit_appeal",
+        args: [a.id],
+      });
+
+      const data = JSON.parse(typeof result === "string" ? result : JSON.stringify(result));
+      if (data.outcome) {
+        updateAppeal(a.id, { outcome: data.outcome, reasoning: data.reasoning, status: "REVIEWED" });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Review failed");
+    } finally {
+      setReviewing(null);
+    }
+  }
 
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
         <p className="text-[13px] text-muted-ink">{appeals.length} appeals filed</p>
-        <Button onClick={() => setShowForm(true)} size="sm"><Plus size={13} /> File Appeal</Button>
+        <Button onClick={() => { setShowForm(true); setError(null); }} size="sm"><Plus size={13} /> File Appeal</Button>
       </div>
+
+      {error && <p className="text-[12px] text-[#C8342D] font-financial">{error}</p>}
 
       <AnimatePresence>
         {showForm && (
@@ -113,22 +170,25 @@ function AppealsContent() {
               </div>
             ))}
             <div className="p-3 bg-[rgba(17,17,17,0.03)] border border-[rgba(17,17,17,0.08)] text-[11px] text-muted-ink">
-              High-risk credit evidence is withheld. Human review required for suspected fraud or identity theft.
+              Human review required for suspected fraud or identity theft.
             </div>
-            <Button onClick={handleSubmit} disabled={!form.reviewId || !form.appealReason} size="sm">Submit Appeal</Button>
+            {txStatus && <p className="text-[12px] text-[#2457FF] font-financial">{txStatus}</p>}
+            {error && <p className="text-[12px] text-[#C8342D] font-financial">{error}</p>}
+            <Button onClick={handleSubmit} disabled={submitting || !form.reviewId || !form.appealReason} size="sm">
+              {submitting ? txStatus ?? "Processing…" : "Submit Appeal"}
+            </Button>
           </motion.div>
         )}
       </AnimatePresence>
 
       <div className="space-y-4">
-        {appeals.length === 0 && (
+        {appeals.length === 0 && !showForm && (
           <div className="panel p-8 text-center">
             <Scale size={32} className="text-[rgba(17,17,17,0.12)] mx-auto mb-3" />
             <p className="text-[13px] text-muted-ink">No appeals filed yet.</p>
           </div>
         )}
         {appeals.map((a) => {
-          const review = reviews.find((r) => r.id === a.reviewId);
           const isReviewing = reviewing === a.id;
           return (
             <div key={a.id} className="panel p-5">
@@ -144,33 +204,18 @@ function AppealsContent() {
                   <Badge variant={APPEAL_OUTCOME_COLOR[a.outcome] as any}>{a.outcome.replace(/_/g," ")}</Badge>
                 ) : <Badge variant="amber">PENDING</Badge>}
               </div>
-
               <div className="space-y-2 mb-3">
-                <div>
-                  <p className="text-[9px] font-financial uppercase tracking-widest text-muted-ink">Appeal Reason</p>
-                  <p className="text-[13px] text-ink">{a.appealReason}</p>
-                </div>
-                {a.missingContext && (
-                  <div>
-                    <p className="text-[9px] font-financial uppercase tracking-widest text-muted-ink">Missing Context</p>
-                    <p className="text-[12px] text-muted-ink">{a.missingContext}</p>
-                  </div>
-                )}
-                {a.counterEvidenceSummary && (
-                  <div>
-                    <p className="text-[9px] font-financial uppercase tracking-widest text-muted-ink">Counter Evidence</p>
-                    <p className="text-[12px] text-muted-ink">{a.counterEvidenceSummary}</p>
-                  </div>
-                )}
+                <div><p className="text-[9px] font-financial uppercase tracking-widest text-muted-ink">Appeal Reason</p><p className="text-[13px] text-ink">{a.appealReason}</p></div>
+                {a.missingContext && <div><p className="text-[9px] font-financial uppercase tracking-widest text-muted-ink">Missing Context</p><p className="text-[12px] text-muted-ink">{a.missingContext}</p></div>}
+                {a.counterEvidenceSummary && <div><p className="text-[9px] font-financial uppercase tracking-widest text-muted-ink">Counter Evidence</p><p className="text-[12px] text-muted-ink">{a.counterEvidenceSummary}</p></div>}
               </div>
-
               {a.outcome && a.reasoning ? (
                 <div className="p-3 bg-[rgba(36,87,255,0.04)] border border-[rgba(36,87,255,0.12)]">
                   <p className="text-[9px] font-financial uppercase tracking-widest text-[#2457FF] mb-1">GenLayer Appeal Verdict</p>
                   <p className="text-[12px] text-ink">{a.reasoning}</p>
                 </div>
               ) : !a.outcome && (
-                <Button size="sm" variant="secondary" disabled={isReviewing} onClick={() => handleReview(a.id)}>
+                <Button size="sm" variant="secondary" disabled={isReviewing || !address} onClick={() => handleReview(a)}>
                   {isReviewing ? <><Loader2 size={12} className="animate-spin" /> Reviewing…</> : "Trigger GenLayer Appeal Review"}
                 </Button>
               )}
