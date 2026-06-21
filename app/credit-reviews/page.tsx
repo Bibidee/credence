@@ -137,8 +137,9 @@ export default function CreditReviewsPage() {
       });
 
       const data = JSON.parse(typeof result === "string" ? result : JSON.stringify(result));
-      if (data.verdict) {
-        updateReview(reviewId, { status: "REVIEWED", verdict: normalizeCreditVerdict(data.verdict) });
+      const normalized = data.verdict ? normalizeCreditVerdict(data.verdict) : null;
+      if (normalized) {
+        updateReview(reviewId, { status: "REVIEWED", verdict: normalized });
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Review failed");
