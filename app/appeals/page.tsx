@@ -61,7 +61,6 @@ function AppealsContent() {
         address: getContractAddress(),
         functionName: "submit_credit_appeal",
         args: [appealId, form.reviewId, appealPacket],
-        account: address,
       });
 
       setTxStatus("Submitted — waiting for GenLayer consensus…");
@@ -100,7 +99,6 @@ function AppealsContent() {
         address: getContractAddress(),
         functionName: "review_credit_appeal",
         args: [a.id],
-        account: address,
       });
 
       await waitForTx(txHash as `0x${string}`);

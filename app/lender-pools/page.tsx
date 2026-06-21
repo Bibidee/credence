@@ -57,7 +57,6 @@ export default function LenderPoolsPage() {
         address: getContractAddress(),
         functionName: "register_lender_pool",
         args: [poolId, profileJson, riskPolicyHash],
-        account: address,
       });
 
       setTxStatus("Transaction submitted — waiting for GenLayer consensus…");

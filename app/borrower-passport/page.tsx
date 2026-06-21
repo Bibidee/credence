@@ -45,7 +45,6 @@ export default function BorrowerPassportPage() {
         address: getContractAddress(),
         functionName: "register_borrower",
         args: [borrowerId, profileJson, profileHash],
-        account: address,
       });
 
       setTxStatus("Submitted — waiting for GenLayer consensus…");

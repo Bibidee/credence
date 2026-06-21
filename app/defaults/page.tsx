@@ -53,7 +53,6 @@ export default function DefaultsPage() {
         address: getContractAddress(),
         functionName: "report_default",
         args: [defaultId, form.loanId, defaultPacket],
-        account: address,
       });
 
       setTxStatus("Submitted — waiting for GenLayer consensus…");
@@ -92,7 +91,6 @@ export default function DefaultsPage() {
         address: getContractAddress(),
         functionName: "review_default",
         args: [d.id],
-        account: address,
       });
 
       await waitForTx(txHash as `0x${string}`);

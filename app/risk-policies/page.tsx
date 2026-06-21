@@ -84,7 +84,6 @@ export default function RiskPoliciesPage() {
         address: getContractAddress(),
         functionName: "register_risk_policy",
         args: [form.poolId, JSON.stringify(policyObj), policyHash],
-        account: address,
       });
 
       setTxStatus("Submitted — waiting for GenLayer consensus…");

@@ -63,7 +63,6 @@ export default function LoanDeskPage() {
         address: getContractAddress(),
         functionName: "submit_loan_request",
         args: [loanRequestId, borrower.id, form.poolId, requestPacket],
-        account: address,
       });
 
       setTxStatus("Submitting loan request to GenLayer…");
@@ -85,7 +84,6 @@ export default function LoanDeskPage() {
         address: getContractAddress(),
         functionName: "accept_loan_terms",
         args: [loanId, loanRequestId, termsJson],
-        account: address,
       });
 
       setTxStatus("Accepting terms on GenLayer…");

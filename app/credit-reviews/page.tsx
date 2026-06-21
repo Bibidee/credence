@@ -86,7 +86,6 @@ export default function CreditReviewsPage() {
         address: getContractAddress(),
         functionName: "submit_reputation_packet",
         args: [reviewId, borrower.id, form.poolId, JSON.stringify({ ...packet, packetHash }), evidenceHash],
-        account: address,
       });
 
       setTxStatus("Submitted — waiting for GenLayer consensus…");
@@ -125,7 +124,6 @@ export default function CreditReviewsPage() {
         address: getContractAddress(),
         functionName: "review_borrower_credit",
         args: [reviewId],
-        account: address,
       });
 
       await waitForTx(txHash as `0x${string}`);
