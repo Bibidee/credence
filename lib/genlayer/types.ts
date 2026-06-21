@@ -1,240 +1,146 @@
-export type CreditDecision =
-  | "APPROVED_FULL_TERMS"
-  | "APPROVED_LIMITED_CREDIT"
-  | "APPROVED_WITH_HIGHER_COLLATERAL"
-  | "NEEDS_MORE_EVIDENCE"
-  | "REJECTED_HIGH_RISK"
-  | "REJECTED_INSUFFICIENT_IDENTITY"
-  | "REJECTED_INCONSISTENT_HISTORY"
-  | "FRAUD_REVIEW_REQUIRED"
-  | "HUMAN_REVIEW_REQUIRED";
+export type PoolStatus = "ACTIVE" | "PAUSED" | "CLOSED";
 
-export type CreditTier =
-  | "TIER_0_UNREVIEWED"
-  | "TIER_1_TRIAL"
-  | "TIER_2_LIMITED"
-  | "TIER_3_TRUSTED"
-  | "TIER_4_HIGH_TRUST"
-  | "TIER_5_INSTITUTIONAL"
-  | "RESTRICTED"
-  | "DEFAULTED";
-
-export type RepaymentCapacity = "UNKNOWN" | "LOW" | "MODERATE" | "STRONG" | "VERY_STRONG";
-export type IdentityConfidence = "NONE" | "LOW" | "MEDIUM" | "HIGH" | "VERY_HIGH";
-export type ReputationStrength = "NONE" | "WEAK" | "MEDIUM" | "STRONG" | "EXCELLENT";
-export type FraudRisk = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-export type InterestRiskBand = "LOW" | "MEDIUM" | "HIGH" | "VERY_HIGH";
-
-export type DefaultReviewOutcome =
+export type LoanStatus =
+  | "APPROVED_NOT_DRAWN"
+  | "ACTIVE"
+  | "PARTIALLY_REPAID"
+  | "REPAID"
+  | "OVERDUE"
+  | "DEFAULT_REVIEW"
   | "DEFAULT_CONFIRMED"
-  | "EXTENSION_RECOMMENDED"
-  | "PARTIAL_REPAYMENT_PLAN"
-  | "RESTRUCTURE_RECOMMENDED"
-  | "BORROWER_EXPLANATION_ACCEPTED"
-  | "FRAUD_REVIEW_REQUIRED"
-  | "LENDER_ERROR"
-  | "NEEDS_MORE_CONTEXT";
+  | "DISPUTED"
+  | "CLOSED";
 
-export type AppealOutcome =
-  | "UPHELD"
-  | "TIER_UPGRADED"
-  | "TIER_DOWNGRADED"
-  | "COLLATERAL_RATIO_REDUCED"
-  | "COLLATERAL_RATIO_INCREASED"
-  | "REVIEW_AGAIN_WITH_MORE_EVIDENCE"
-  | "ESCALATED_TO_HUMAN";
+export type ReviewStatus =
+  | "PENDING"
+  | "EVALUATING"
+  | "APPROVED"
+  | "APPROVED_LIMITED"
+  | "REJECTED"
+  | "MORE_EVIDENCE_REQUIRED"
+  | "ESCALATED";
 
-export interface CreditTermSheet {
-  loanLimit: string;
-  minimumCollateral: string;
-  durationDays: number;
-  repaymentSchedule: string;
-  upgradeCondition: string;
-  downgradeCondition: string;
-}
-
-export interface CreditVerdict {
-  decision: CreditDecision;
-  creditTier: CreditTier;
-  recommendedCollateralRatio: number;
-  maxApprovedAmount: string;
-  interestRiskBand: InterestRiskBand;
-  confidence: number;
-  repaymentCapacity: RepaymentCapacity;
-  identityConfidence: IdentityConfidence;
-  reputationStrength: ReputationStrength;
-  fraudRisk: FraudRisk;
-  reasoning: string;
-  termSheet: CreditTermSheet;
-  riskNotes: string[];
-  privacyNotes: string;
-  appealAvailable: boolean;
-}
-
-export type CreditReviewStatus = "SUBMITTED" | "UNDER_REVIEW" | "REVIEWED" | "APPEALED" | "CLOSED";
-export type LoanStatus = "ACTIVE" | "REPAID" | "LATE" | "DEFAULT_REVIEW" | "DEFAULTED" | "RESTRUCTURED";
-export type RiskAppetite = "CONSERVATIVE" | "BALANCED" | "GROWTH" | "EXPERIMENTAL";
-
-export interface Borrower {
-  id: string;
-  wallet: string;
-  alias: string;
-  profileHash: string;
-  currentTier: CreditTier;
-  reviewCount: number;
-  successfulRepayments: number;
-  defaults: number;
-  createdAt: string;
-}
+export type ReviewVerdict = "APPROVE" | "APPROVE_LIMITED" | "REQUEST_MORE_EVIDENCE" | "REJECT" | "ESCALATE";
+export type DefaultVerdict = "DEFAULT_CONFIRMED" | "DEFAULT_DISPUTED" | "DEFAULT_CURED" | "ESCALATE";
+export type AppealVerdict = "APPEAL_UPHELD" | "APPEAL_REJECTED" | "REQUEST_MORE_EVIDENCE" | "ESCALATE";
 
 export interface LenderPool {
-  id: string;
-  owner: string;
-  name: string;
-  asset: string;
-  riskPolicyHash: string;
-  minimumTier: CreditTier;
-  maxLoanAmount: string;
-  maxDurationDays: number;
-  riskAppetite: RiskAppetite;
-  createdAt: string;
+  pool_id: string;
+  lender_address: string;
+  pool_name: string;
+  description: string;
+  policy_id: string;
+  pool_native_balance: number;        // wei
+  available_native_liquidity: number; // wei
+  total_drawn_native: number;         // wei
+  total_repaid_native: number;        // wei
+  active_loan_count: number;
+  status: PoolStatus;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface RiskPolicy {
-  id: string;
-  poolId: string;
-  acceptedEvidenceTypes: string[];
-  minimumWalletAgeDays: number;
-  minimumRepayments: number;
-  maximumExposurePerBorrower: string;
-  allowedLoanPurposes: string[];
-  restrictedLoanPurposes: string[];
-  collateralBands: Record<string, { min: number; max: number }>;
-  defaultGraceDays: number;
-  appealWindowHours: number;
-  escalationTriggers: string[];
-  plainTextCriteria: string;
+  policy_id: string;
+  pool_id: string;
+  lender_address: string;
+  policy_name: string;
+  min_trust_score: number;
+  max_risk_band: string;
+  max_loan_native: number; // wei
+  max_duration_days: number;
+  required_evidence: string[];
+  allowed_borrower_types: string[];
+  default_tolerance: string;
+  appeal_allowed: boolean;
+  policy_notes: string;
+  created_at: string;
+}
+
+export interface BorrowerProfile {
+  borrower_id: string;
+  borrower_address: string;
+  borrower_name: string;
+  borrower_type: string;
+  purpose_summary: string;
+  wallet_history_summary: string;
+  repayment_history_summary: string;
+  income_or_revenue_summary: string;
+  dao_or_work_history: string;
+  guarantor_note: string;
+  evidence_urls: string[];
+  repayment_count: number;
+  default_count: number;
+  status: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CreditReview {
-  id: string;
-  borrowerId: string;
-  poolId: string;
-  reputationPacketHash: string;
-  evidenceHash: string;
-  status: CreditReviewStatus;
-  verdict?: CreditVerdict;
-  createdAt: string;
-  reputationPacket?: ReputationPacket;
-}
-
-export interface ReputationPacket {
-  reviewId: string;
-  borrowerId: string;
-  poolId: string;
-  walletAddress: string;
-  requestedTier: CreditTier;
-  requestedAmount: string;
-  requestedDurationDays: number;
-  identityAttestations: IdentityAttestation[];
-  onchainHistory: OnchainHistory;
-  offchainAttestations: OffchainAttestation[];
-  loanPurpose: LoanPurpose;
-  privacyStatement: string;
-  submittedAt: string;
-}
-
-export interface IdentityAttestation {
-  type: string;
-  provider: string;
-  attestationHash: string;
-  confidence: IdentityConfidence;
-}
-
-export interface OnchainHistory {
-  walletAgeDays: number;
-  priorLoanRepayments: number;
-  defaults: number;
-  liquidations: number;
-  suspiciousPatterns: string[];
-}
-
-export interface OffchainAttestation {
-  type: string;
-  issuerHash: string;
-  documentHash: string;
-  summary: string;
-}
-
-export interface LoanPurpose {
-  category: string;
-  summary: string;
-  requestedAmount: string;
-  requestedDurationDays: number;
+  review_id: string;
+  borrower_id: string;
+  pool_id: string;
+  policy_id: string;
+  requested_amount_native: number; // wei
+  packet: Record<string, unknown>;
+  status: ReviewStatus;
+  verdict: ReviewVerdict | null;
+  risk_band: string | null;
+  trust_score: number | null;
+  approved_amount_native: number; // wei
+  requires_more_evidence: boolean;
+  red_flags_summary: string;
+  missing_evidence_summary: string;
+  consensus_memo: string;
+  created_at: string;
+  evaluated_at: string | null;
 }
 
 export interface Loan {
-  id: string;
-  borrowerId: string;
-  poolId: string;
-  principal: string;
-  collateral: string;
-  collateralRatio: number;
-  durationDays: number;
+  loan_id: string;
+  review_id: string;
+  borrower_id: string;
+  pool_id: string;
+  lender_address: string;
+  borrower_address: string;
+  principal_native: number;    // wei
+  repay_due_native: number;    // wei
+  drawn_amount_native: number; // wei
+  repaid_amount_native: number;    // wei
+  outstanding_amount_native: number; // wei
+  due_timestamp: number;
   status: LoanStatus;
-  createdAt: string;
-  dueAt: string;
-}
-
-export interface Repayment {
-  id: string;
-  loanId: string;
-  amount: string;
-  paidAt: string;
-  txHash: string;
-  status: "CONFIRMED" | "PARTIAL" | "LATE" | "DISPUTED";
+  created_at: string;
+  drawn_at: string | null;
+  repaid_at: string | null;
 }
 
 export interface DefaultReview {
-  id: string;
-  loanId: string;
-  missedDueDate: string;
-  amountDue: string;
-  amountPaid: string;
-  borrowerExplanation: string;
-  supportingEvidenceHashes: string[];
-  requestedOutcome: string;
-  outcome?: DefaultReviewOutcome;
-  reasoning?: string;
-  createdAt: string;
+  default_review_id: string;
+  loan_id: string;
+  opened_by: string;
+  reason: string;
+  borrower_response: string;
+  evidence_urls: string[];
+  verdict: DefaultVerdict | null;
+  memo: string;
+  status: string;
+  created_at: string;
+  evaluated_at: string | null;
 }
 
-export interface CreditAppeal {
-  id: string;
-  reviewId: string;
-  appealReason: string;
-  missingContext: string;
-  counterEvidenceSummary: string;
-  requestedOutcome: string;
-  additionalEvidenceHashes: string[];
-  outcome?: AppealOutcome;
-  reasoning?: string;
-  status: "SUBMITTED" | "REVIEWED";
-  createdAt: string;
-}
-
-export interface ProtocolStats {
-  totalReviews: number;
-  approvedCount: number;
-  rejectedCount: number;
-  pendingCount: number;
-  totalLoans: number;
-  totalRepaid: number;
-  totalDefaults: number;
-  totalAppeals: number;
-  appealReversals: number;
-  avgCollateralRatio: number;
-  avgConfidence: number;
-  totalBorrowers: number;
-  totalPools: number;
+export interface Appeal {
+  appeal_id: string;
+  target_type: "review" | "default";
+  target_id: string;
+  borrower_id: string;
+  submitted_by: string;
+  new_evidence_summary: string;
+  new_evidence_urls: string[];
+  old_verdict: string;
+  new_verdict: AppealVerdict | null;
+  memo: string;
+  status: string;
+  created_at: string;
+  evaluated_at: string | null;
 }

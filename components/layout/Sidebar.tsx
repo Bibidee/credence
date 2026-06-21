@@ -3,24 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, User, Building2, Shield, FileSearch,
-  Landmark, Receipt, AlertTriangle, Scale, BarChart3,
-  FlaskConical, Settings, Zap,
+  LayoutDashboard, Building2, User, FileSearch,
+  Landmark, AlertTriangle, Scale, Settings, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
 const NAV = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
-  { href: "/borrower-passport", label: "Borrower Passport", icon: User },
-  { href: "/lender-pools", label: "Lender Pools", icon: Building2 },
-  { href: "/risk-policies", label: "Risk Policies", icon: Shield },
-  { href: "/credit-reviews", label: "Credit Reviews", icon: FileSearch },
-  { href: "/loan-desk", label: "Loan Desk", icon: Landmark },
-  { href: "/repayments", label: "Repayments", icon: Receipt },
+  { href: "/pools", label: "Lender Pools", icon: Building2 },
+  { href: "/borrowers", label: "Borrowers", icon: User },
+  { href: "/reviews", label: "Credit Reviews", icon: FileSearch },
+  { href: "/loans", label: "Loans", icon: Landmark },
   { href: "/defaults", label: "Defaults", icon: AlertTriangle },
   { href: "/appeals", label: "Appeals", icon: Scale },
-  { href: "/transparency", label: "Transparency", icon: BarChart3 },
-  { href: "/playground", label: "Playground", icon: FlaskConical },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -39,7 +34,7 @@ export default function Sidebar() {
           </span>
         </Link>
         <p className="text-[10px] mt-1 font-financial" style={{ color: "rgba(244,239,230,0.4)" }}>
-          CREDIT ARBITRATION
+          NATIVE GEN CREDIT ARBITRATION
         </p>
       </div>
 

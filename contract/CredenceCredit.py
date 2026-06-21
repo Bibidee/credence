@@ -1,121 +1,134 @@
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
-# CredenceCredit — GenLayer Intelligent Contract
-# Credence: Consensus-backed creditworthiness for under-collateralized lending.
+# CredenceCredit v2 — GenLayer Intelligent Contract
+# Native GEN-denominated lending pools with consensus-backed credit arbitration.
 #
-# What is stored on-chain:
-#   - Borrower profile hash and wallet
-#   - Lender pool metadata
-#   - Risk policy hash and criteria
-#   - Reputation packet hash and evidence hash
-#   - Structured credit verdicts
-#   - Loan terms and repayment status
-#   - Default review outcomes
-#   - Appeal outcomes
+# Value flows:
+#   deposit_to_pool  — lender sends native GEN, contract records balance
+#   repay_loan       — borrower sends native GEN, contract restores pool liquidity
+#   draw_loan        — marks loan drawn; native GEN transfer to borrower TBD per GL SDK
 #
-# What is NOT stored on-chain:
-#   - Raw identity documents
-#   - Bank statements or salary slips
-#   - Government ID numbers (BVN, NIN, SSN, etc.)
-#   - Full addresses or biometric data
-#   - Unredacted private attestations
+# All amounts stored in wei (integer). Display layer divides by 1e18.
 
 import json
 from genlayer import *
 
 
 class CredenceCredit(gl.Contract):
+    pools: TreeMap[str, str]
+    policies: TreeMap[str, str]
     borrowers: TreeMap[str, str]
-    lender_pools: TreeMap[str, str]
-    risk_policies: TreeMap[str, str]
-    credit_reviews: TreeMap[str, str]
-    loan_requests: TreeMap[str, str]
+    wallet_to_borrower: TreeMap[str, str]
+    reviews: TreeMap[str, str]
     loans: TreeMap[str, str]
-    default_reviews: TreeMap[str, str]
+    defaults: TreeMap[str, str]
     appeals: TreeMap[str, str]
-    borrower_loans: TreeMap[str, str]
-    pool_loans: TreeMap[str, str]
-    stats: str
 
     def __init__(self) -> None:
+        self.pools = TreeMap()
+        self.policies = TreeMap()
         self.borrowers = TreeMap()
-        self.lender_pools = TreeMap()
-        self.risk_policies = TreeMap()
-        self.credit_reviews = TreeMap()
-        self.loan_requests = TreeMap()
+        self.wallet_to_borrower = TreeMap()
+        self.reviews = TreeMap()
         self.loans = TreeMap()
-        self.default_reviews = TreeMap()
+        self.defaults = TreeMap()
         self.appeals = TreeMap()
-        self.borrower_loans = TreeMap()
-        self.pool_loans = TreeMap()
-        self.stats = json.dumps({
-            "totalReviews": 0,
-            "approvedCount": 0,
-            "rejectedCount": 0,
-            "pendingCount": 0,
-            "totalLoans": 0,
-            "totalRepaid": 0,
-            "totalDefaults": 0,
-            "totalAppeals": 0,
-            "appealReversals": 0,
-            "avgCollateralRatio": 0,
-            "avgConfidence": 0,
-            "totalBorrowers": 0,
-            "totalPools": 0,
-        })
+
+    # ── Pool Management ────────────────────────────────────────────────────────
+
+    @gl.public.write
+    def create_pool(self, pool_id: str, name: str, description: str) -> None:
+        if pool_id in self.pools:
+            raise Exception("Pool already exists")
+        pool = {
+            "pool_id": pool_id,
+            "lender_address": str(gl.message.sender_account),
+            "pool_name": name,
+            "description": description,
+            "policy_id": "",
+            "pool_native_balance": 0,
+            "available_native_liquidity": 0,
+            "total_drawn_native": 0,
+            "total_repaid_native": 0,
+            "active_loan_count": 0,
+            "status": "ACTIVE",
+            "created_at": str(gl.message.timestamp),
+            "updated_at": str(gl.message.timestamp),
+        }
+        self.pools[pool_id] = json.dumps(pool)
+
+    @gl.public.write
+    def deposit_to_pool(self, pool_id: str, amount_wei: int) -> None:
+        if pool_id not in self.pools:
+            raise Exception("Pool not found")
+        if amount_wei <= 0:
+            raise Exception("Deposit amount must be greater than 0")
+        pool = json.loads(self.pools[pool_id])
+        if pool["status"] != "ACTIVE":
+            raise Exception("Pool is not active")
+        if str(gl.message.sender_account) != pool["lender_address"]:
+            raise Exception("Only the pool lender can deposit")
+        pool["pool_native_balance"] = pool.get("pool_native_balance", 0) + amount_wei
+        pool["available_native_liquidity"] = pool.get("available_native_liquidity", 0) + amount_wei
+        pool["updated_at"] = str(gl.message.timestamp)
+        self.pools[pool_id] = json.dumps(pool)
+
+    @gl.public.write
+    def create_policy(self, pool_id: str, policy_id: str, policy_json: str) -> None:
+        if pool_id not in self.pools:
+            raise Exception("Pool not found")
+        pool = json.loads(self.pools[pool_id])
+        if str(gl.message.sender_account) != pool["lender_address"]:
+            raise Exception("Only the pool lender can create a policy")
+        policy = json.loads(policy_json)
+        policy["policy_id"] = policy_id
+        policy["pool_id"] = pool_id
+        policy["lender_address"] = str(gl.message.sender_account)
+        policy["created_at"] = str(gl.message.timestamp)
+        self.policies[policy_id] = json.dumps(policy)
+        pool["policy_id"] = policy_id
+        pool["updated_at"] = str(gl.message.timestamp)
+        self.pools[pool_id] = json.dumps(pool)
+
+    @gl.public.write
+    def pause_pool(self, pool_id: str) -> None:
+        if pool_id not in self.pools:
+            raise Exception("Pool not found")
+        pool = json.loads(self.pools[pool_id])
+        if str(gl.message.sender_account) != pool["lender_address"]:
+            raise Exception("Only the pool lender can pause it")
+        pool["status"] = "PAUSED"
+        pool["updated_at"] = str(gl.message.timestamp)
+        self.pools[pool_id] = json.dumps(pool)
 
     # ── Borrower Registration ──────────────────────────────────────────────────
 
     @gl.public.write
-    def register_borrower(self, borrower_id: str, borrower_profile_json: str, profile_hash: str) -> None:
-        profile = json.loads(borrower_profile_json)
-        record = {
-            "id": borrower_id,
-            "wallet": profile.get("wallet", ""),
-            "alias": profile.get("alias", ""),
-            "profileHash": profile_hash,
-            "currentTier": "TIER_0_UNREVIEWED",
-            "reviewCount": 0,
-            "successfulRepayments": 0,
-            "defaults": 0,
-            "createdAt": str(gl.message.timestamp),
+    def register_borrower(self, borrower_id: str, borrower_json: str) -> None:
+        if borrower_id in self.borrowers:
+            raise Exception("Borrower already registered")
+        data = json.loads(borrower_json)
+        borrower = {
+            "borrower_id": borrower_id,
+            "borrower_address": str(gl.message.sender_account),
+            "borrower_name": data.get("borrower_name", ""),
+            "borrower_type": data.get("borrower_type", "INDIVIDUAL"),
+            "purpose_summary": data.get("purpose_summary", ""),
+            "wallet_history_summary": data.get("wallet_history_summary", ""),
+            "repayment_history_summary": data.get("repayment_history_summary", ""),
+            "income_or_revenue_summary": data.get("income_or_revenue_summary", ""),
+            "dao_or_work_history": data.get("dao_or_work_history", ""),
+            "guarantor_note": data.get("guarantor_note", ""),
+            "evidence_urls": data.get("evidence_urls", []),
+            "repayment_count": 0,
+            "default_count": 0,
+            "status": "ACTIVE",
+            "created_at": str(gl.message.timestamp),
+            "updated_at": str(gl.message.timestamp),
         }
-        self.borrowers[borrower_id] = json.dumps(record)
-        stats = json.loads(self.stats)
-        stats["totalBorrowers"] += 1
-        self.stats = json.dumps(stats)
+        self.borrowers[borrower_id] = json.dumps(borrower)
+        self.wallet_to_borrower[str(gl.message.sender_account)] = borrower_id
 
-    # ── Lender Pool Registration ───────────────────────────────────────────────
-
-    @gl.public.write
-    def register_lender_pool(self, pool_id: str, pool_profile_json: str, risk_policy_hash: str) -> None:
-        profile = json.loads(pool_profile_json)
-        record = {
-            "id": pool_id,
-            "owner": profile.get("owner", ""),
-            "name": profile.get("name", ""),
-            "asset": profile.get("asset", "USDC"),
-            "riskPolicyHash": risk_policy_hash,
-            "minimumTier": profile.get("minimumTier", "TIER_1_TRIAL"),
-            "maxLoanAmount": profile.get("maxLoanAmount", "0 USDC"),
-            "maxDurationDays": profile.get("maxDurationDays", 30),
-            "riskAppetite": profile.get("riskAppetite", "BALANCED"),
-            "createdAt": str(gl.message.timestamp),
-        }
-        self.lender_pools[pool_id] = json.dumps(record)
-        stats = json.loads(self.stats)
-        stats["totalPools"] += 1
-        self.stats = json.dumps(stats)
-
-    @gl.public.write
-    def register_risk_policy(self, pool_id: str, risk_policy_json: str, risk_policy_hash: str) -> None:
-        policy = json.loads(risk_policy_json)
-        policy["id"] = f"policy_{pool_id}"
-        policy["poolId"] = pool_id
-        policy["riskPolicyHash"] = risk_policy_hash
-        policy["registeredAt"] = str(gl.message.timestamp)
-        self.risk_policies[pool_id] = json.dumps(policy)
-
-    # ── Reputation Packet and Credit Review ───────────────────────────────────
+    # ── Credit Review ──────────────────────────────────────────────────────────
 
     @gl.public.write
     def submit_reputation_packet(
@@ -123,442 +136,415 @@ class CredenceCredit(gl.Contract):
         review_id: str,
         borrower_id: str,
         pool_id: str,
-        reputation_packet_json: str,
-        evidence_hash: str,
+        requested_amount_wei: int,
+        packet_json: str,
     ) -> None:
-        packet = json.loads(reputation_packet_json)
-        record = {
-            "id": review_id,
-            "borrowerId": borrower_id,
-            "poolId": pool_id,
-            "reputationPacketHash": packet.get("packetHash", ""),
-            "evidenceHash": evidence_hash,
-            "reputationPacketJson": reputation_packet_json,
-            "status": "SUBMITTED",
+        if review_id in self.reviews:
+            raise Exception("Review already exists")
+        if borrower_id not in self.borrowers:
+            raise Exception("Borrower not found")
+        if pool_id not in self.pools:
+            raise Exception("Pool not found")
+        pool = json.loads(self.pools[pool_id])
+        review = {
+            "review_id": review_id,
+            "borrower_id": borrower_id,
+            "pool_id": pool_id,
+            "policy_id": pool.get("policy_id", ""),
+            "requested_amount_native": requested_amount_wei,
+            "packet": json.loads(packet_json),
+            "status": "PENDING",
             "verdict": None,
-            "createdAt": str(gl.message.timestamp),
+            "risk_band": None,
+            "trust_score": None,
+            "approved_amount_native": 0,
+            "requires_more_evidence": False,
+            "red_flags_summary": "",
+            "missing_evidence_summary": "",
+            "consensus_memo": "",
+            "created_at": str(gl.message.timestamp),
+            "evaluated_at": None,
         }
-        self.credit_reviews[review_id] = json.dumps(record)
-        stats = json.loads(self.stats)
-        stats["totalReviews"] += 1
-        stats["pendingCount"] += 1
-        self.stats = json.dumps(stats)
+        self.reviews[review_id] = json.dumps(review)
 
     @gl.public.write
-    def review_borrower_credit(self, review_id: str) -> None:
-        review = json.loads(self.credit_reviews[review_id])
-        packet = json.loads(review["reputationPacketJson"])
-        pool_id = review["poolId"]
+    def evaluate_credit_review(self, review_id: str) -> None:
+        if review_id not in self.reviews:
+            raise Exception("Review not found")
+        review = json.loads(self.reviews[review_id])
+        if review["status"] in ("APPROVED", "APPROVED_LIMITED", "REJECTED"):
+            raise Exception("Review already finalized")
 
-        policy_raw = self.risk_policies.get(pool_id)
+        pool_raw = self.pools.get(review["pool_id"])
+        pool = json.loads(pool_raw) if pool_raw else {}
+        policy_raw = self.policies.get(pool.get("policy_id", ""))
         policy = json.loads(policy_raw) if policy_raw else {}
+        packet = review.get("packet", {})
+        requested = review.get("requested_amount_native", 0)
+        available = pool.get("available_native_liquidity", 0)
 
-        prompt = f"""You are a credit arbitration system for under-collateralized lending. Review the borrower's reputation packet against the lender's risk policy and produce a structured credit verdict in valid JSON.
+        prompt = f"""You are a credit arbitration system for native GEN lending. Evaluate this borrower against the lender policy.
 
-LENDER RISK POLICY:
-{json.dumps(policy, indent=2)}
+POOL AVAILABLE (wei): {available}
+REQUESTED (wei): {requested}
+LENDER POLICY: {json.dumps(policy)}
+BORROWER PACKET: {json.dumps(packet)}
 
-BORROWER REPUTATION PACKET:
-{json.dumps(packet, indent=2)}
+Rules:
+- Never discriminate on protected characteristics
+- Base only on evidence quality, repayment history, wallet behavior, loan purpose, policy match
+- approved_amount_native must not exceed min(available, requested)
+- trust_score 0-100
 
-CREDIT TIERS AND COLLATERAL BANDS:
-- TIER_0_UNREVIEWED: no under-collateralized access
-- TIER_1_TRIAL: 90%-100% collateral required
-- TIER_2_LIMITED: 60%-90% collateral required
-- TIER_3_TRUSTED: 35%-60% collateral required
-- TIER_4_HIGH_TRUST: 15%-35% collateral required
-- TIER_5_INSTITUTIONAL: custom pool policy
+Output ONLY valid compact JSON, no extra text:
+{{"verdict":"APPROVE","risk_band":"LOW","trust_score":75,"approved_amount_native":{min(requested, available)},"requires_more_evidence":false,"red_flags_summary":"","missing_evidence_summary":"","consensus_memo":"Borrower demonstrates credible repayment capacity."}}
 
-IMPORTANT RULES:
-1. Do NOT infer protected personal traits (race, ethnicity, religion, gender, disability, etc.)
-2. Base your decision only on wallet behaviour, attestation confidence, repayment history, loan purpose, and lender policy
-3. If fraud is suspected, set decision to FRAUD_REVIEW_REQUIRED
-4. Be appropriately uncertain - reflect confidence honestly
-5. Raw identity documents were not submitted - only hashes and summaries
-6. Output valid JSON only. No additional text.
-
-OUTPUT FORMAT:
-{{
-  "decision": "APPROVED_LIMITED_CREDIT | APPROVED_FULL_TERMS | APPROVED_WITH_HIGHER_COLLATERAL | NEEDS_MORE_EVIDENCE | REJECTED_HIGH_RISK | REJECTED_INSUFFICIENT_IDENTITY | REJECTED_INCONSISTENT_HISTORY | FRAUD_REVIEW_REQUIRED | HUMAN_REVIEW_REQUIRED",
-  "creditTier": "TIER_0_UNREVIEWED | TIER_1_TRIAL | TIER_2_LIMITED | TIER_3_TRUSTED | TIER_4_HIGH_TRUST | TIER_5_INSTITUTIONAL | RESTRICTED | DEFAULTED",
-  "recommendedCollateralRatio": 65,
-  "maxApprovedAmount": "500 USDC",
-  "interestRiskBand": "LOW | MEDIUM | HIGH | VERY_HIGH",
-  "confidence": 0.78,
-  "repaymentCapacity": "UNKNOWN | LOW | MODERATE | STRONG | VERY_STRONG",
-  "identityConfidence": "NONE | LOW | MEDIUM | HIGH | VERY_HIGH",
-  "reputationStrength": "NONE | WEAK | MEDIUM | STRONG | EXCELLENT",
-  "fraudRisk": "LOW | MEDIUM | HIGH | CRITICAL",
-  "reasoning": "concise non-discriminatory explanation of the credit decision",
-  "termSheet": {{
-    "loanLimit": "500 USDC",
-    "minimumCollateral": "325 USDC",
-    "durationDays": 30,
-    "repaymentSchedule": "single repayment at maturity",
-    "upgradeCondition": "condition to qualify for higher tier",
-    "downgradeCondition": "condition that triggers downgrade"
-  }},
-  "riskNotes": ["list", "of", "specific", "risk", "factors"],
-  "privacyNotes": "Raw identity documents were not stored on-chain. Only attestation hashes and summaries were considered.",
-  "appealAvailable": true
-}}"""
+Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCALATE"""
 
         result = gl.exec_prompt(prompt)
 
         try:
-            verdict = json.loads(result)
+            out = json.loads(result)
+            verdict = out.get("verdict", "REJECT")
+            if verdict not in ("APPROVE", "APPROVE_LIMITED", "REQUEST_MORE_EVIDENCE", "REJECT", "ESCALATE"):
+                verdict = "REJECT"
+            trust_score = max(0, min(100, int(out.get("trust_score", 0))))
+            approved = int(out.get("approved_amount_native", 0))
+            approved = min(approved, available, requested)
+            approved = max(0, approved)
         except Exception:
-            verdict = {
-                "decision": "HUMAN_REVIEW_REQUIRED",
-                "creditTier": "TIER_0_UNREVIEWED",
-                "recommendedCollateralRatio": 100,
-                "maxApprovedAmount": "0 USDC",
-                "interestRiskBand": "HIGH",
-                "confidence": 0,
-                "repaymentCapacity": "UNKNOWN",
-                "identityConfidence": "NONE",
-                "reputationStrength": "NONE",
-                "fraudRisk": "MEDIUM",
-                "reasoning": "Verdict parsing failed. Human review required.",
-                "termSheet": {
-                    "loanLimit": "0 USDC",
-                    "minimumCollateral": "0 USDC",
-                    "durationDays": 0,
-                    "repaymentSchedule": "N/A",
-                    "upgradeCondition": "N/A",
-                    "downgradeCondition": "N/A",
-                },
-                "riskNotes": ["Automated review failed"],
-                "privacyNotes": "Raw identity documents were not stored on-chain.",
-                "appealAvailable": True,
-            }
+            verdict = "REJECT"
+            trust_score = 0
+            approved = 0
+            out = {}
+
+        status_map = {
+            "APPROVE": "APPROVED",
+            "APPROVE_LIMITED": "APPROVED_LIMITED",
+            "REQUEST_MORE_EVIDENCE": "MORE_EVIDENCE_REQUIRED",
+            "ESCALATE": "ESCALATED",
+            "REJECT": "REJECTED",
+        }
 
         review["verdict"] = verdict
-        review["status"] = "REVIEWED"
-        review["reviewedAt"] = str(gl.message.timestamp)
-        self.credit_reviews[review_id] = json.dumps(review)
+        review["status"] = status_map.get(verdict, "REJECTED")
+        review["risk_band"] = str(out.get("risk_band", "HIGH"))[:20]
+        review["trust_score"] = trust_score
+        review["approved_amount_native"] = approved
+        review["requires_more_evidence"] = bool(out.get("requires_more_evidence", False))
+        review["red_flags_summary"] = str(out.get("red_flags_summary", ""))[:400]
+        review["missing_evidence_summary"] = str(out.get("missing_evidence_summary", ""))[:400]
+        review["consensus_memo"] = str(out.get("consensus_memo", ""))[:800]
+        review["evaluated_at"] = str(gl.message.timestamp)
+        self.reviews[review_id] = json.dumps(review)
 
-        borrower_id = review["borrowerId"]
-        if borrower_id in self.borrowers:
-            borrower = json.loads(self.borrowers[borrower_id])
-            borrower["currentTier"] = verdict.get("creditTier", borrower["currentTier"])
-            borrower["reviewCount"] = borrower.get("reviewCount", 0) + 1
-            self.borrowers[borrower_id] = json.dumps(borrower)
-
-        stats = json.loads(self.stats)
-        stats["pendingCount"] = max(0, stats["pendingCount"] - 1)
-        decision = verdict.get("decision", "")
-        if "APPROVED" in decision:
-            stats["approvedCount"] += 1
-        elif "REJECTED" in decision or "FRAUD" in decision:
-            stats["rejectedCount"] += 1
-
-        total = stats["approvedCount"] + stats["rejectedCount"]
-        if total > 0:
-            stats["avgConfidence"] = (
-                (stats["avgConfidence"] * (total - 1) + verdict.get("confidence", 0)) / total
-            )
-
-        ratio = verdict.get("recommendedCollateralRatio", 0)
-        if ratio > 0 and total > 0:
-            stats["avgCollateralRatio"] = (
-                (stats["avgCollateralRatio"] * (total - 1) + ratio) / total
-            )
-
-        self.stats = json.dumps(stats)
-
-    # ── Loan Request ──────────────────────────────────────────────────────────
+    # ── Loan Lifecycle ─────────────────────────────────────────────────────────
 
     @gl.public.write
-    def submit_loan_request(
-        self,
-        loan_request_id: str,
-        borrower_id: str,
-        pool_id: str,
-        request_packet_json: str,
-    ) -> None:
-        record = {
-            "id": loan_request_id,
-            "borrowerId": borrower_id,
-            "poolId": pool_id,
-            "requestPacket": json.loads(request_packet_json),
-            "status": "SUBMITTED",
-            "verdict": None,
-            "createdAt": str(gl.message.timestamp),
+    def create_loan(self, loan_id: str, review_id: str) -> None:
+        if loan_id in self.loans:
+            raise Exception("Loan already exists")
+        if review_id not in self.reviews:
+            raise Exception("Review not found")
+        review = json.loads(self.reviews[review_id])
+        if review["verdict"] not in ("APPROVE", "APPROVE_LIMITED"):
+            raise Exception("Review not approved")
+
+        pool_id = review["pool_id"]
+        pool = json.loads(self.pools[pool_id])
+        principal = review["approved_amount_native"]
+
+        if pool["available_native_liquidity"] < principal:
+            raise Exception("Insufficient pool liquidity")
+
+        borrower = json.loads(self.borrowers[review["borrower_id"]])
+        due_ts = gl.message.timestamp + 30 * 24 * 3600
+
+        loan = {
+            "loan_id": loan_id,
+            "review_id": review_id,
+            "borrower_id": review["borrower_id"],
+            "pool_id": pool_id,
+            "lender_address": pool["lender_address"],
+            "borrower_address": borrower["borrower_address"],
+            "principal_native": principal,
+            "repay_due_native": principal,
+            "drawn_amount_native": 0,
+            "repaid_amount_native": 0,
+            "outstanding_amount_native": principal,
+            "due_timestamp": due_ts,
+            "status": "APPROVED_NOT_DRAWN",
+            "created_at": str(gl.message.timestamp),
+            "drawn_at": None,
+            "repaid_at": None,
         }
-        self.loan_requests[loan_request_id] = json.dumps(record)
 
-    @gl.public.write
-    def review_loan_request(self, loan_request_id: str) -> None:
-        request = json.loads(self.loan_requests[loan_request_id])
-        borrower_id = request["borrowerId"]
-        pool_id = request["poolId"]
+        pool["available_native_liquidity"] = pool["available_native_liquidity"] - principal
+        pool["active_loan_count"] = pool.get("active_loan_count", 0) + 1
+        pool["updated_at"] = str(gl.message.timestamp)
 
-        borrower_raw = self.borrowers.get(borrower_id)
-        borrower = json.loads(borrower_raw) if borrower_raw else {}
-        policy_raw = self.risk_policies.get(pool_id)
-        policy = json.loads(policy_raw) if policy_raw else {}
-
-        prompt = f"""Review this loan request against the borrower's current credit tier and the lender's risk policy. Return a JSON verdict with approval status, recommended terms, and reasoning.
-
-BORROWER: {json.dumps(borrower)}
-LOAN REQUEST: {json.dumps(request["requestPacket"])}
-RISK POLICY: {json.dumps(policy)}
-
-Output valid JSON only:
-{{
-  "approved": true,
-  "adjustedAmount": "500 USDC",
-  "adjustedCollateralRatio": 65,
-  "reasoning": "...",
-  "conditions": ["list of conditions"]
-}}"""
-
-        result = gl.exec_prompt(prompt)
-        try:
-            verdict = json.loads(result)
-        except Exception:
-            verdict = {"approved": False, "reasoning": "Review failed. Manual review required."}
-
-        request["verdict"] = verdict
-        request["status"] = "REVIEWED"
-        self.loan_requests[loan_request_id] = json.dumps(request)
-
-    @gl.public.write
-    def accept_loan_terms(self, loan_id: str, loan_request_id: str, accepted_terms_json: str) -> None:
-        terms = json.loads(accepted_terms_json)
-        record = {
-            "id": loan_id,
-            "loanRequestId": loan_request_id,
-            "borrowerId": terms.get("borrowerId", ""),
-            "poolId": terms.get("poolId", ""),
-            "principal": terms.get("principal", ""),
-            "collateral": terms.get("collateral", ""),
-            "collateralRatio": terms.get("collateralRatio", 100),
-            "durationDays": terms.get("durationDays", 30),
-            "status": "ACTIVE",
-            "createdAt": str(gl.message.timestamp),
-            "dueAt": terms.get("dueAt", ""),
-        }
-        self.loans[loan_id] = json.dumps(record)
-
-        borrower_id = terms.get("borrowerId", "")
-        pool_id = terms.get("poolId", "")
-        if borrower_id:
-            existing_raw = self.borrower_loans.get(borrower_id)
-            existing = json.loads(existing_raw) if existing_raw else []
-            existing.append(loan_id)
-            self.borrower_loans[borrower_id] = json.dumps(existing)
-        if pool_id:
-            existing_raw = self.pool_loans.get(pool_id)
-            existing = json.loads(existing_raw) if existing_raw else []
-            existing.append(loan_id)
-            self.pool_loans[pool_id] = json.dumps(existing)
-
-        stats = json.loads(self.stats)
-        stats["totalLoans"] += 1
-        self.stats = json.dumps(stats)
-
-    @gl.public.write
-    def record_repayment(self, loan_id: str, repayment_json: str) -> None:
-        repayment = json.loads(repayment_json)
-        loan = json.loads(self.loans[loan_id])
-        loan["status"] = "REPAID"
-        loan["repayment"] = repayment
-        loan["repaidAt"] = str(gl.message.timestamp)
         self.loans[loan_id] = json.dumps(loan)
+        self.pools[pool_id] = json.dumps(pool)
 
-        borrower_id = loan.get("borrowerId", "")
-        if borrower_id and borrower_id in self.borrowers:
-            borrower = json.loads(self.borrowers[borrower_id])
-            borrower["successfulRepayments"] = borrower.get("successfulRepayments", 0) + 1
-            self.borrowers[borrower_id] = json.dumps(borrower)
+    @gl.public.write
+    def draw_loan(self, loan_id: str) -> None:
+        if loan_id not in self.loans:
+            raise Exception("Loan not found")
+        loan = json.loads(self.loans[loan_id])
+        if loan["status"] != "APPROVED_NOT_DRAWN":
+            raise Exception("Loan not in drawable state")
+        if str(gl.message.sender_account) != loan["borrower_address"]:
+            raise Exception("Only the borrower can draw the loan")
 
-        stats = json.loads(self.stats)
-        stats["totalRepaid"] = stats.get("totalRepaid", 0) + 1
-        self.stats = json.dumps(stats)
+        loan["status"] = "ACTIVE"
+        loan["drawn_amount_native"] = loan["principal_native"]
+        loan["drawn_at"] = str(gl.message.timestamp)
+
+        pool = json.loads(self.pools[loan["pool_id"]])
+        pool["total_drawn_native"] = pool.get("total_drawn_native", 0) + loan["principal_native"]
+        pool["updated_at"] = str(gl.message.timestamp)
+
+        self.loans[loan_id] = json.dumps(loan)
+        self.pools[loan["pool_id"]] = json.dumps(pool)
+
+    @gl.public.write
+    def repay_loan(self, loan_id: str, amount_wei: int) -> None:
+        if loan_id not in self.loans:
+            raise Exception("Loan not found")
+        loan = json.loads(self.loans[loan_id])
+        if loan["status"] not in ("ACTIVE", "PARTIALLY_REPAID", "OVERDUE"):
+            raise Exception("Loan is not in a repayable state")
+        if amount_wei <= 0:
+            raise Exception("Repayment must be greater than 0")
+        if str(gl.message.sender_account) != loan["borrower_address"]:
+            raise Exception("Only the borrower can repay")
+
+        outstanding = loan.get("outstanding_amount_native", loan["principal_native"])
+        new_repaid = loan.get("repaid_amount_native", 0) + amount_wei
+        new_outstanding = max(0, outstanding - amount_wei)
+
+        loan["repaid_amount_native"] = new_repaid
+        loan["outstanding_amount_native"] = new_outstanding
+
+        if new_outstanding == 0:
+            loan["status"] = "REPAID"
+            loan["repaid_at"] = str(gl.message.timestamp)
+        else:
+            loan["status"] = "PARTIALLY_REPAID"
+
+        pool = json.loads(self.pools[loan["pool_id"]])
+        pool["available_native_liquidity"] = pool.get("available_native_liquidity", 0) + amount_wei
+        pool["total_repaid_native"] = pool.get("total_repaid_native", 0) + amount_wei
+        if loan["status"] == "REPAID":
+            pool["active_loan_count"] = max(0, pool.get("active_loan_count", 0) - 1)
+        pool["updated_at"] = str(gl.message.timestamp)
+
+        self.loans[loan_id] = json.dumps(loan)
+        self.pools[loan["pool_id"]] = json.dumps(pool)
+
+        if loan["status"] == "REPAID":
+            borrower_id = loan["borrower_id"]
+            if borrower_id in self.borrowers:
+                borrower = json.loads(self.borrowers[borrower_id])
+                borrower["repayment_count"] = borrower.get("repayment_count", 0) + 1
+                borrower["updated_at"] = str(gl.message.timestamp)
+                self.borrowers[borrower_id] = json.dumps(borrower)
 
     # ── Default Review ─────────────────────────────────────────────────────────
 
     @gl.public.write
-    def report_default(self, default_review_id: str, loan_id: str, default_packet_json: str) -> None:
-        packet = json.loads(default_packet_json)
+    def open_default_review(
+        self, default_id: str, loan_id: str, reason: str, borrower_response: str
+    ) -> None:
+        if default_id in self.defaults:
+            raise Exception("Default review already exists")
+        if loan_id not in self.loans:
+            raise Exception("Loan not found")
+        loan = json.loads(self.loans[loan_id])
         record = {
-            "id": default_review_id,
-            "loanId": loan_id,
-            "packet": packet,
-            "status": "SUBMITTED",
-            "outcome": None,
-            "reasoning": None,
-            "createdAt": str(gl.message.timestamp),
+            "default_review_id": default_id,
+            "loan_id": loan_id,
+            "opened_by": str(gl.message.sender_account),
+            "reason": reason[:500],
+            "borrower_response": borrower_response[:500],
+            "evidence_urls": [],
+            "verdict": None,
+            "memo": "",
+            "status": "PENDING",
+            "created_at": str(gl.message.timestamp),
+            "evaluated_at": None,
         }
-        self.default_reviews[default_review_id] = json.dumps(record)
-
-        loan_raw = self.loans.get(loan_id)
-        if loan_raw:
-            loan = json.loads(loan_raw)
-            loan["status"] = "DEFAULT_REVIEW"
-            self.loans[loan_id] = json.dumps(loan)
-
-        stats = json.loads(self.stats)
-        stats["totalDefaults"] = stats.get("totalDefaults", 0) + 1
-        self.stats = json.dumps(stats)
+        self.defaults[default_id] = json.dumps(record)
+        loan["status"] = "DEFAULT_REVIEW"
+        self.loans[loan_id] = json.dumps(loan)
 
     @gl.public.write
-    def review_default(self, default_review_id: str) -> None:
-        review = json.loads(self.default_reviews[default_review_id])
-        packet = review["packet"]
-        loan_raw = self.loans.get(review["loanId"])
+    def evaluate_default(self, default_id: str) -> None:
+        if default_id not in self.defaults:
+            raise Exception("Default review not found")
+        review = json.loads(self.defaults[default_id])
+        if review["status"] == "REVIEWED":
+            raise Exception("Default already evaluated")
+        loan_raw = self.loans.get(review["loan_id"])
         loan = json.loads(loan_raw) if loan_raw else {}
 
-        prompt = f"""Review this loan default report and determine the appropriate outcome. Consider the borrower's explanation and evidence.
+        prompt = f"""Evaluate this loan default. The lender opened a default review and the borrower may have responded. Output ONLY valid compact JSON.
 
 LOAN DETAILS: {json.dumps(loan)}
-DEFAULT PACKET: {json.dumps(packet)}
+DEFAULT REASON: {review['reason']}
+BORROWER RESPONSE: {review['borrower_response']}
 
-Allowed outcomes:
-DEFAULT_CONFIRMED | EXTENSION_RECOMMENDED | PARTIAL_REPAYMENT_PLAN | RESTRUCTURE_RECOMMENDED | BORROWER_EXPLANATION_ACCEPTED | FRAUD_REVIEW_REQUIRED | LENDER_ERROR | NEEDS_MORE_CONTEXT
+Allowed verdicts: DEFAULT_CONFIRMED, DEFAULT_DISPUTED, DEFAULT_CURED, ESCALATE
 
-Output valid JSON only:
-{{
-  "outcome": "EXTENSION_RECOMMENDED",
-  "reasoning": "concise explanation of the decision",
-  "gracePeriodDays": 7,
-  "conditions": ["list of conditions if any"]
-}}"""
+Output ONLY valid compact JSON:
+{{"verdict":"DEFAULT_CONFIRMED","severity":"MEDIUM","borrower_fault_level":"HIGH","can_be_cured":false,"memo":"Brief explanation."}}"""
 
         result = gl.exec_prompt(prompt)
         try:
-            verdict = json.loads(result)
+            out = json.loads(result)
+            verdict = out.get("verdict", "DEFAULT_CONFIRMED")
+            if verdict not in ("DEFAULT_CONFIRMED", "DEFAULT_DISPUTED", "DEFAULT_CURED", "ESCALATE"):
+                verdict = "DEFAULT_CONFIRMED"
         except Exception:
-            verdict = {"outcome": "NEEDS_MORE_CONTEXT", "reasoning": "Review failed. More context needed."}
+            out = {}
+            verdict = "DEFAULT_CONFIRMED"
 
-        review["outcome"] = verdict.get("outcome")
-        review["reasoning"] = verdict.get("reasoning")
+        review["verdict"] = verdict
+        review["memo"] = str(out.get("memo", ""))[:500]
         review["status"] = "REVIEWED"
-        review["reviewedAt"] = str(gl.message.timestamp)
-        self.default_reviews[default_review_id] = json.dumps(review)
+        review["evaluated_at"] = str(gl.message.timestamp)
+        self.defaults[default_id] = json.dumps(review)
 
-    # ── Credit Appeal ──────────────────────────────────────────────────────────
+        if review["loan_id"] in self.loans:
+            loan = json.loads(self.loans[review["loan_id"]])
+            if verdict == "DEFAULT_CONFIRMED":
+                loan["status"] = "DEFAULT_CONFIRMED"
+            elif verdict == "DEFAULT_CURED":
+                loan["status"] = "ACTIVE"
+            self.loans[review["loan_id"]] = json.dumps(loan)
+
+        if verdict == "DEFAULT_CONFIRMED":
+            borrower_id = loan.get("borrower_id", "")
+            if borrower_id and borrower_id in self.borrowers:
+                borrower = json.loads(self.borrowers[borrower_id])
+                borrower["default_count"] = borrower.get("default_count", 0) + 1
+                borrower["updated_at"] = str(gl.message.timestamp)
+                self.borrowers[borrower_id] = json.dumps(borrower)
+
+    # ── Appeal ─────────────────────────────────────────────────────────────────
 
     @gl.public.write
-    def submit_credit_appeal(self, appeal_id: str, review_id: str, appeal_packet_json: str) -> None:
-        packet = json.loads(appeal_packet_json)
-        record = {
-            "id": appeal_id,
-            "reviewId": review_id,
-            "packet": packet,
-            "status": "SUBMITTED",
-            "outcome": None,
-            "reasoning": None,
-            "createdAt": str(gl.message.timestamp),
+    def submit_appeal(
+        self,
+        appeal_id: str,
+        target_type: str,
+        target_id: str,
+        borrower_id: str,
+        new_evidence_summary: str,
+        old_verdict: str,
+    ) -> None:
+        if appeal_id in self.appeals:
+            raise Exception("Appeal already exists")
+        appeal = {
+            "appeal_id": appeal_id,
+            "target_type": target_type,
+            "target_id": target_id,
+            "borrower_id": borrower_id,
+            "submitted_by": str(gl.message.sender_account),
+            "new_evidence_summary": new_evidence_summary[:800],
+            "new_evidence_urls": [],
+            "old_verdict": old_verdict,
+            "new_verdict": None,
+            "memo": "",
+            "status": "PENDING",
+            "created_at": str(gl.message.timestamp),
+            "evaluated_at": None,
         }
-        self.appeals[appeal_id] = json.dumps(record)
-
-        stats = json.loads(self.stats)
-        stats["totalAppeals"] = stats.get("totalAppeals", 0) + 1
-        self.stats = json.dumps(stats)
-
-    @gl.public.write
-    def review_credit_appeal(self, appeal_id: str) -> None:
-        appeal = json.loads(self.appeals[appeal_id])
-        review_id = appeal["reviewId"]
-        original_raw = self.credit_reviews.get(review_id)
-        original_review = json.loads(original_raw) if original_raw else {}
-        original_verdict = original_review.get("verdict", {})
-
-        prompt = f"""Review this credit appeal. Compare the original credit verdict against the new context and evidence provided in the appeal.
-
-ORIGINAL CREDIT VERDICT:
-{json.dumps(original_verdict, indent=2)}
-
-APPEAL PACKET:
-{json.dumps(appeal["packet"], indent=2)}
-
-Allowed outcomes:
-UPHELD | TIER_UPGRADED | TIER_DOWNGRADED | COLLATERAL_RATIO_REDUCED | COLLATERAL_RATIO_INCREASED | REVIEW_AGAIN_WITH_MORE_EVIDENCE | ESCALATED_TO_HUMAN
-
-Consider: Does the appeal introduce enough new context to revise the original decision? Is the borrower's counter-evidence credible? Is the original decision consistent with the new information?
-
-Output valid JSON only:
-{{
-  "outcome": "COLLATERAL_RATIO_REDUCED",
-  "reasoning": "explanation of appeal decision",
-  "revisedCollateralRatio": 55,
-  "revisedTier": "TIER_2_LIMITED",
-  "confidence": 0.82
-}}"""
-
-        result = gl.exec_prompt(prompt)
-        try:
-            verdict = json.loads(result)
-        except Exception:
-            verdict = {"outcome": "ESCALATED_TO_HUMAN", "reasoning": "Appeal review failed. Human review required."}
-
-        appeal["outcome"] = verdict.get("outcome")
-        appeal["reasoning"] = verdict.get("reasoning")
-        appeal["status"] = "REVIEWED"
-        appeal["reviewedAt"] = str(gl.message.timestamp)
         self.appeals[appeal_id] = json.dumps(appeal)
 
-        positive = {"TIER_UPGRADED", "COLLATERAL_RATIO_REDUCED"}
-        if verdict.get("outcome") in positive:
-            stats = json.loads(self.stats)
-            stats["appealReversals"] = stats.get("appealReversals", 0) + 1
-            self.stats = json.dumps(stats)
+    @gl.public.write
+    def evaluate_appeal(self, appeal_id: str) -> None:
+        if appeal_id not in self.appeals:
+            raise Exception("Appeal not found")
+        appeal = json.loads(self.appeals[appeal_id])
+        if appeal["status"] == "REVIEWED":
+            raise Exception("Appeal already evaluated")
+
+        if appeal["target_type"] == "review":
+            original_raw = self.reviews.get(appeal["target_id"])
+        else:
+            original_raw = self.defaults.get(appeal["target_id"])
+        original = json.loads(original_raw) if original_raw else {}
+
+        prompt = f"""Evaluate this appeal. Compare new evidence against the original decision. Output ONLY valid compact JSON.
+
+ORIGINAL DECISION: {json.dumps(original)}
+OLD VERDICT: {appeal['old_verdict']}
+NEW EVIDENCE: {appeal['new_evidence_summary']}
+
+Allowed verdicts: APPEAL_UPHELD, APPEAL_REJECTED, REQUEST_MORE_EVIDENCE, ESCALATE
+
+Output ONLY valid compact JSON:
+{{"verdict":"APPEAL_REJECTED","changed_original_decision":false,"requires_more_evidence":false,"memo":"Brief explanation."}}"""
+
+        result = gl.exec_prompt(prompt)
+        try:
+            out = json.loads(result)
+            verdict = out.get("verdict", "APPEAL_REJECTED")
+            if verdict not in ("APPEAL_UPHELD", "APPEAL_REJECTED", "REQUEST_MORE_EVIDENCE", "ESCALATE"):
+                verdict = "APPEAL_REJECTED"
+        except Exception:
+            out = {}
+            verdict = "APPEAL_REJECTED"
+
+        appeal["new_verdict"] = verdict
+        appeal["memo"] = str(out.get("memo", ""))[:500]
+        appeal["status"] = "REVIEWED"
+        appeal["evaluated_at"] = str(gl.message.timestamp)
+        self.appeals[appeal_id] = json.dumps(appeal)
+
+        if verdict == "APPEAL_UPHELD" and appeal["target_type"] == "review":
+            target_id = appeal["target_id"]
+            if target_id in self.reviews:
+                review = json.loads(self.reviews[target_id])
+                review["status"] = "APPROVED"
+                review["verdict"] = "APPROVE"
+                review["consensus_memo"] = f"Appeal upheld: {str(out.get('memo',''))[:200]}"
+                self.reviews[target_id] = json.dumps(review)
 
     # ── View Methods ───────────────────────────────────────────────────────────
 
     @gl.public.view
+    def get_pool(self, pool_id: str) -> str:
+        return self.pools.get(pool_id) or "{}"
+
+    @gl.public.view
+    def get_policy(self, policy_id: str) -> str:
+        return self.policies.get(policy_id) or "{}"
+
+    @gl.public.view
     def get_borrower(self, borrower_id: str) -> str:
-        raw = self.borrowers.get(borrower_id)
-        return raw if raw else "{}"
+        return self.borrowers.get(borrower_id) or "{}"
 
     @gl.public.view
-    def get_lender_pool(self, pool_id: str) -> str:
-        raw = self.lender_pools.get(pool_id)
-        return raw if raw else "{}"
+    def get_borrower_by_wallet(self, wallet: str) -> str:
+        bid = self.wallet_to_borrower.get(wallet)
+        if not bid:
+            return "{}"
+        return self.borrowers.get(bid) or "{}"
 
     @gl.public.view
-    def get_risk_policy(self, pool_id: str) -> str:
-        raw = self.risk_policies.get(pool_id)
-        return raw if raw else "{}"
-
-    @gl.public.view
-    def get_credit_review(self, review_id: str) -> str:
-        raw = self.credit_reviews.get(review_id)
-        return raw if raw else "{}"
-
-    @gl.public.view
-    def get_loan_request(self, loan_request_id: str) -> str:
-        raw = self.loan_requests.get(loan_request_id)
-        return raw if raw else "{}"
+    def get_review(self, review_id: str) -> str:
+        return self.reviews.get(review_id) or "{}"
 
     @gl.public.view
     def get_loan(self, loan_id: str) -> str:
-        raw = self.loans.get(loan_id)
-        return raw if raw else "{}"
+        return self.loans.get(loan_id) or "{}"
 
     @gl.public.view
-    def get_default_review(self, default_review_id: str) -> str:
-        raw = self.default_reviews.get(default_review_id)
-        return raw if raw else "{}"
+    def get_default_review(self, default_id: str) -> str:
+        return self.defaults.get(default_id) or "{}"
 
     @gl.public.view
-    def get_credit_appeal(self, appeal_id: str) -> str:
-        raw = self.appeals.get(appeal_id)
-        return raw if raw else "{}"
-
-    @gl.public.view
-    def get_borrower_loans(self, borrower_id: str) -> str:
-        raw = self.borrower_loans.get(borrower_id)
-        return raw if raw else "[]"
-
-    @gl.public.view
-    def get_pool_loans(self, pool_id: str) -> str:
-        raw = self.pool_loans.get(pool_id)
-        return raw if raw else "[]"
-
-    @gl.public.view
-    def get_protocol_stats(self) -> str:
-        return self.stats
+    def get_appeal(self, appeal_id: str) -> str:
+        return self.appeals.get(appeal_id) or "{}"
