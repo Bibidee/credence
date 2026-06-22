@@ -41,7 +41,7 @@ class CredenceCredit(gl.Contract):
             raise Exception("Pool already exists")
         pool = {
             "pool_id": pool_id,
-            "lender_address": str(gl.message.sender_account),
+            "lender_address": str(gl.message.sender_address),
             "pool_name": name,
             "description": description,
             "policy_id": "",
@@ -65,7 +65,7 @@ class CredenceCredit(gl.Contract):
         pool = json.loads(self.pools[pool_id])
         if pool["status"] != "ACTIVE":
             raise Exception("Pool is not active")
-        if str(gl.message.sender_account) != pool["lender_address"]:
+        if str(gl.message.sender_address) != pool["lender_address"]:
             raise Exception("Only the pool lender can deposit")
         pool["pool_native_balance"] = pool.get("pool_native_balance", 0) + amount_wei
         pool["available_native_liquidity"] = pool.get("available_native_liquidity", 0) + amount_wei
@@ -77,12 +77,12 @@ class CredenceCredit(gl.Contract):
         if pool_id not in self.pools:
             raise Exception("Pool not found")
         pool = json.loads(self.pools[pool_id])
-        if str(gl.message.sender_account) != pool["lender_address"]:
+        if str(gl.message.sender_address) != pool["lender_address"]:
             raise Exception("Only the pool lender can create a policy")
         policy = json.loads(policy_json)
         policy["policy_id"] = policy_id
         policy["pool_id"] = pool_id
-        policy["lender_address"] = str(gl.message.sender_account)
+        policy["lender_address"] = str(gl.message.sender_address)
         policy["created_at"] = str(gl.message.timestamp)
         self.policies[policy_id] = json.dumps(policy)
         pool["policy_id"] = policy_id
@@ -94,7 +94,7 @@ class CredenceCredit(gl.Contract):
         if pool_id not in self.pools:
             raise Exception("Pool not found")
         pool = json.loads(self.pools[pool_id])
-        if str(gl.message.sender_account) != pool["lender_address"]:
+        if str(gl.message.sender_address) != pool["lender_address"]:
             raise Exception("Only the pool lender can pause it")
         pool["status"] = "PAUSED"
         pool["updated_at"] = str(gl.message.timestamp)
@@ -109,7 +109,7 @@ class CredenceCredit(gl.Contract):
         data = json.loads(borrower_json)
         borrower = {
             "borrower_id": borrower_id,
-            "borrower_address": str(gl.message.sender_account),
+            "borrower_address": str(gl.message.sender_address),
             "borrower_name": data.get("borrower_name", ""),
             "borrower_type": data.get("borrower_type", "INDIVIDUAL"),
             "purpose_summary": data.get("purpose_summary", ""),
@@ -126,7 +126,7 @@ class CredenceCredit(gl.Contract):
             "updated_at": str(gl.message.timestamp),
         }
         self.borrowers[borrower_id] = json.dumps(borrower)
-        self.wallet_to_borrower[str(gl.message.sender_account)] = borrower_id
+        self.wallet_to_borrower[str(gl.message.sender_address)] = borrower_id
 
     # ── Credit Review ──────────────────────────────────────────────────────────
 
@@ -293,7 +293,7 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
         loan = json.loads(self.loans[loan_id])
         if loan["status"] != "APPROVED_NOT_DRAWN":
             raise Exception("Loan not in drawable state")
-        if str(gl.message.sender_account) != loan["borrower_address"]:
+        if str(gl.message.sender_address) != loan["borrower_address"]:
             raise Exception("Only the borrower can draw the loan")
 
         loan["status"] = "ACTIVE"
@@ -316,7 +316,7 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
             raise Exception("Loan is not in a repayable state")
         if amount_wei <= 0:
             raise Exception("Repayment must be greater than 0")
-        if str(gl.message.sender_account) != loan["borrower_address"]:
+        if str(gl.message.sender_address) != loan["borrower_address"]:
             raise Exception("Only the borrower can repay")
 
         outstanding = loan.get("outstanding_amount_native", loan["principal_native"])
@@ -364,7 +364,7 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
         record = {
             "default_review_id": default_id,
             "loan_id": loan_id,
-            "opened_by": str(gl.message.sender_account),
+            "opened_by": str(gl.message.sender_address),
             "reason": reason[:500],
             "borrower_response": borrower_response[:500],
             "evidence_urls": [],
@@ -450,7 +450,7 @@ Output ONLY valid compact JSON:
             "target_type": target_type,
             "target_id": target_id,
             "borrower_id": borrower_id,
-            "submitted_by": str(gl.message.sender_account),
+            "submitted_by": str(gl.message.sender_address),
             "new_evidence_summary": new_evidence_summary[:800],
             "new_evidence_urls": [],
             "old_verdict": old_verdict,
