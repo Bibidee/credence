@@ -10,7 +10,12 @@
 # All amounts stored in wei (integer). Display layer divides by 1e18.
 
 import json
+from datetime import datetime, timezone
 from genlayer import *
+
+
+def _now() -> int:
+    return int(datetime.now(timezone.utc).timestamp())
 
 
 class CredenceCredit(gl.Contract):
@@ -51,8 +56,8 @@ class CredenceCredit(gl.Contract):
             "total_repaid_native": 0,
             "active_loan_count": 0,
             "status": "ACTIVE",
-            "created_at": str(gl.message.timestamp),
-            "updated_at": str(gl.message.timestamp),
+            "created_at": str(_now()),
+            "updated_at": str(_now()),
         }
         self.pools[pool_id] = json.dumps(pool)
 
@@ -69,7 +74,7 @@ class CredenceCredit(gl.Contract):
             raise Exception("Only the pool lender can deposit")
         pool["pool_native_balance"] = pool.get("pool_native_balance", 0) + amount_wei
         pool["available_native_liquidity"] = pool.get("available_native_liquidity", 0) + amount_wei
-        pool["updated_at"] = str(gl.message.timestamp)
+        pool["updated_at"] = str(_now())
         self.pools[pool_id] = json.dumps(pool)
 
     @gl.public.write
@@ -83,10 +88,10 @@ class CredenceCredit(gl.Contract):
         policy["policy_id"] = policy_id
         policy["pool_id"] = pool_id
         policy["lender_address"] = str(gl.message.sender_address)
-        policy["created_at"] = str(gl.message.timestamp)
+        policy["created_at"] = str(_now())
         self.policies[policy_id] = json.dumps(policy)
         pool["policy_id"] = policy_id
-        pool["updated_at"] = str(gl.message.timestamp)
+        pool["updated_at"] = str(_now())
         self.pools[pool_id] = json.dumps(pool)
 
     @gl.public.write
@@ -97,7 +102,7 @@ class CredenceCredit(gl.Contract):
         if str(gl.message.sender_address) != pool["lender_address"]:
             raise Exception("Only the pool lender can pause it")
         pool["status"] = "PAUSED"
-        pool["updated_at"] = str(gl.message.timestamp)
+        pool["updated_at"] = str(_now())
         self.pools[pool_id] = json.dumps(pool)
 
     # ── Borrower Registration ──────────────────────────────────────────────────
@@ -122,8 +127,8 @@ class CredenceCredit(gl.Contract):
             "repayment_count": 0,
             "default_count": 0,
             "status": "ACTIVE",
-            "created_at": str(gl.message.timestamp),
-            "updated_at": str(gl.message.timestamp),
+            "created_at": str(_now()),
+            "updated_at": str(_now()),
         }
         self.borrowers[borrower_id] = json.dumps(borrower)
         self.wallet_to_borrower[str(gl.message.sender_address)] = borrower_id
@@ -162,7 +167,7 @@ class CredenceCredit(gl.Contract):
             "red_flags_summary": "",
             "missing_evidence_summary": "",
             "consensus_memo": "",
-            "created_at": str(gl.message.timestamp),
+            "created_at": str(_now()),
             "evaluated_at": None,
         }
         self.reviews[review_id] = json.dumps(review)
@@ -235,7 +240,7 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
         review["red_flags_summary"] = str(out.get("red_flags_summary", ""))[:400]
         review["missing_evidence_summary"] = str(out.get("missing_evidence_summary", ""))[:400]
         review["consensus_memo"] = str(out.get("consensus_memo", ""))[:800]
-        review["evaluated_at"] = str(gl.message.timestamp)
+        review["evaluated_at"] = str(_now())
         self.reviews[review_id] = json.dumps(review)
 
     # ── Loan Lifecycle ─────────────────────────────────────────────────────────
@@ -258,7 +263,7 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
             raise Exception("Insufficient pool liquidity")
 
         borrower = json.loads(self.borrowers[review["borrower_id"]])
-        due_ts = gl.message.timestamp + 30 * 24 * 3600
+        due_ts = _now() + 30 * 24 * 3600
 
         loan = {
             "loan_id": loan_id,
@@ -274,14 +279,14 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
             "outstanding_amount_native": principal,
             "due_timestamp": due_ts,
             "status": "APPROVED_NOT_DRAWN",
-            "created_at": str(gl.message.timestamp),
+            "created_at": str(_now()),
             "drawn_at": None,
             "repaid_at": None,
         }
 
         pool["available_native_liquidity"] = pool["available_native_liquidity"] - principal
         pool["active_loan_count"] = pool.get("active_loan_count", 0) + 1
-        pool["updated_at"] = str(gl.message.timestamp)
+        pool["updated_at"] = str(_now())
 
         self.loans[loan_id] = json.dumps(loan)
         self.pools[pool_id] = json.dumps(pool)
@@ -298,11 +303,11 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
 
         loan["status"] = "ACTIVE"
         loan["drawn_amount_native"] = loan["principal_native"]
-        loan["drawn_at"] = str(gl.message.timestamp)
+        loan["drawn_at"] = str(_now())
 
         pool = json.loads(self.pools[loan["pool_id"]])
         pool["total_drawn_native"] = pool.get("total_drawn_native", 0) + loan["principal_native"]
-        pool["updated_at"] = str(gl.message.timestamp)
+        pool["updated_at"] = str(_now())
 
         self.loans[loan_id] = json.dumps(loan)
         self.pools[loan["pool_id"]] = json.dumps(pool)
@@ -328,7 +333,7 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
 
         if new_outstanding == 0:
             loan["status"] = "REPAID"
-            loan["repaid_at"] = str(gl.message.timestamp)
+            loan["repaid_at"] = str(_now())
         else:
             loan["status"] = "PARTIALLY_REPAID"
 
@@ -337,7 +342,7 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
         pool["total_repaid_native"] = pool.get("total_repaid_native", 0) + amount_wei
         if loan["status"] == "REPAID":
             pool["active_loan_count"] = max(0, pool.get("active_loan_count", 0) - 1)
-        pool["updated_at"] = str(gl.message.timestamp)
+        pool["updated_at"] = str(_now())
 
         self.loans[loan_id] = json.dumps(loan)
         self.pools[loan["pool_id"]] = json.dumps(pool)
@@ -347,7 +352,7 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
             if borrower_id in self.borrowers:
                 borrower = json.loads(self.borrowers[borrower_id])
                 borrower["repayment_count"] = borrower.get("repayment_count", 0) + 1
-                borrower["updated_at"] = str(gl.message.timestamp)
+                borrower["updated_at"] = str(_now())
                 self.borrowers[borrower_id] = json.dumps(borrower)
 
     # ── Default Review ─────────────────────────────────────────────────────────
@@ -371,7 +376,7 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
             "verdict": None,
             "memo": "",
             "status": "PENDING",
-            "created_at": str(gl.message.timestamp),
+            "created_at": str(_now()),
             "evaluated_at": None,
         }
         self.defaults[default_id] = json.dumps(record)
@@ -412,7 +417,7 @@ Output ONLY valid compact JSON:
         review["verdict"] = verdict
         review["memo"] = str(out.get("memo", ""))[:500]
         review["status"] = "REVIEWED"
-        review["evaluated_at"] = str(gl.message.timestamp)
+        review["evaluated_at"] = str(_now())
         self.defaults[default_id] = json.dumps(review)
 
         if review["loan_id"] in self.loans:
@@ -428,7 +433,7 @@ Output ONLY valid compact JSON:
             if borrower_id and borrower_id in self.borrowers:
                 borrower = json.loads(self.borrowers[borrower_id])
                 borrower["default_count"] = borrower.get("default_count", 0) + 1
-                borrower["updated_at"] = str(gl.message.timestamp)
+                borrower["updated_at"] = str(_now())
                 self.borrowers[borrower_id] = json.dumps(borrower)
 
     # ── Appeal ─────────────────────────────────────────────────────────────────
@@ -457,7 +462,7 @@ Output ONLY valid compact JSON:
             "new_verdict": None,
             "memo": "",
             "status": "PENDING",
-            "created_at": str(gl.message.timestamp),
+            "created_at": str(_now()),
             "evaluated_at": None,
         }
         self.appeals[appeal_id] = json.dumps(appeal)
@@ -500,7 +505,7 @@ Output ONLY valid compact JSON:
         appeal["new_verdict"] = verdict
         appeal["memo"] = str(out.get("memo", ""))[:500]
         appeal["status"] = "REVIEWED"
-        appeal["evaluated_at"] = str(gl.message.timestamp)
+        appeal["evaluated_at"] = str(_now())
         self.appeals[appeal_id] = json.dumps(appeal)
 
         if verdict == "APPEAL_UPHELD" and appeal["target_type"] == "review":
