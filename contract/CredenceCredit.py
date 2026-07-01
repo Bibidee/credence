@@ -1,13 +1,5 @@
+# v0.2.18
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
-# CredenceCredit v2 — GenLayer Intelligent Contract
-# Native GEN-denominated lending pools with consensus-backed credit arbitration.
-#
-# Value flows:
-#   deposit_to_pool  — lender sends native GEN, contract records balance
-#   repay_loan       — borrower sends native GEN, contract restores pool liquidity
-#   draw_loan        — marks loan drawn; native GEN transfer to borrower TBD per GL SDK
-#
-# All amounts stored in wei (integer). Display layer divides by 1e18.
 
 import json
 from datetime import datetime, timezone
@@ -46,7 +38,8 @@ class CredenceCredit(gl.Contract):
             raise Exception("Pool already exists")
         pool = {
             "pool_id": pool_id,
-            "lender_address": str(gl.message.sender_address),
+            "lender_address": 
+          str(gl.message.sender_address),
             "pool_name": name,
             "description": description,
             "policy_id": "",
@@ -61,7 +54,7 @@ class CredenceCredit(gl.Contract):
         }
         self.pools[pool_id] = json.dumps(pool)
 
-    @gl.public.write
+    @gl.public.write.payable
     def deposit_to_pool(self, pool_id: str, amount_wei: int) -> None:
         if pool_id not in self.pools:
             raise Exception("Pool not found")
@@ -312,7 +305,7 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
         self.loans[loan_id] = json.dumps(loan)
         self.pools[loan["pool_id"]] = json.dumps(pool)
 
-    @gl.public.write
+    @gl.public.write.payable
     def repay_loan(self, loan_id: str, amount_wei: int) -> None:
         if loan_id not in self.loans:
             raise Exception("Loan not found")
