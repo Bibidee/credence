@@ -201,7 +201,20 @@ Output ONLY valid compact JSON, no extra text:
 
 Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCALATE"""
 
-        result = gl.nondet.exec_prompt(prompt)
+        def _leader():
+            return gl.nondet.exec_prompt(prompt)
+
+        def _validator(leaders_res):
+            if not isinstance(leaders_res, gl.vm.Return):
+                return False
+            try:
+                leader_out = json.loads(leaders_res.calldata)
+                my_out = json.loads(_leader())
+                return leader_out.get("verdict") == my_out.get("verdict")
+            except Exception:
+                return False
+
+        result = gl.run_nondet_unsafe(_leader, _validator)
 
         try:
             out = json.loads(result)
@@ -400,7 +413,20 @@ Allowed verdicts: DEFAULT_CONFIRMED, DEFAULT_DISPUTED, DEFAULT_CURED, ESCALATE
 Output ONLY valid compact JSON:
 {{"verdict":"DEFAULT_CONFIRMED","severity":"MEDIUM","borrower_fault_level":"HIGH","can_be_cured":false,"memo":"Brief explanation."}}"""
 
-        result = gl.nondet.exec_prompt(prompt)
+        def _leader():
+            return gl.nondet.exec_prompt(prompt)
+
+        def _validator(leaders_res):
+            if not isinstance(leaders_res, gl.vm.Return):
+                return False
+            try:
+                leader_out = json.loads(leaders_res.calldata)
+                my_out = json.loads(_leader())
+                return leader_out.get("verdict") == my_out.get("verdict")
+            except Exception:
+                return False
+
+        result = gl.run_nondet_unsafe(_leader, _validator)
         try:
             out = json.loads(result)
             verdict = out.get("verdict", "DEFAULT_CONFIRMED")
@@ -488,7 +514,20 @@ Allowed verdicts: APPEAL_UPHELD, APPEAL_REJECTED, REQUEST_MORE_EVIDENCE, ESCALAT
 Output ONLY valid compact JSON:
 {{"verdict":"APPEAL_REJECTED","changed_original_decision":false,"requires_more_evidence":false,"memo":"Brief explanation."}}"""
 
-        result = gl.nondet.exec_prompt(prompt)
+        def _leader():
+            return gl.nondet.exec_prompt(prompt)
+
+        def _validator(leaders_res):
+            if not isinstance(leaders_res, gl.vm.Return):
+                return False
+            try:
+                leader_out = json.loads(leaders_res.calldata)
+                my_out = json.loads(_leader())
+                return leader_out.get("verdict") == my_out.get("verdict")
+            except Exception:
+                return False
+
+        result = gl.run_nondet_unsafe(_leader, _validator)
         try:
             out = json.loads(result)
             verdict = out.get("verdict", "APPEAL_REJECTED")
