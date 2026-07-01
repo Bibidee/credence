@@ -56,6 +56,7 @@ class CredenceCredit(gl.Contract):
 
     @gl.public.write.payable
     def deposit_to_pool(self, pool_id: str, amount_wei: int) -> None:
+        amount_wei = int(amount_wei)
         if pool_id not in self.pools:
             raise Exception("Pool not found")
         if amount_wei <= 0:
@@ -137,6 +138,7 @@ class CredenceCredit(gl.Contract):
         requested_amount_wei: int,
         packet_json: str,
     ) -> None:
+        requested_amount_wei = int(requested_amount_wei)
         if review_id in self.reviews:
             raise Exception("Review already exists")
         if borrower_id not in self.borrowers:
@@ -307,6 +309,7 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
 
     @gl.public.write.payable
     def repay_loan(self, loan_id: str, amount_wei: int) -> None:
+        amount_wei = int(amount_wei)
         if loan_id not in self.loans:
             raise Exception("Loan not found")
         loan = json.loads(self.loans[loan_id])
