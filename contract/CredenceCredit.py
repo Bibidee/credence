@@ -1,5 +1,6 @@
-# v0.2.18
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
+# CredenceCredit — GenLayer Intelligent Contract
+# Native GEN-denominated lending pools with consensus-backed credit arbitration.
 
 import json
 from datetime import datetime, timezone
@@ -8,6 +9,11 @@ from genlayer import *
 
 def _now() -> int:
     return int(datetime.now(timezone.utc).timestamp())
+
+
+REVIEW_VERDICTS = ("APPROVE", "APPROVE_LIMITED", "REQUEST_MORE_EVIDENCE", "REJECT", "ESCALATE")
+DEFAULT_VERDICTS = ("DEFAULT_CONFIRMED", "DEFAULT_DISPUTED", "DEFAULT_CURED", "ESCALATE")
+APPEAL_VERDICTS = ("APPEAL_UPHELD", "APPEAL_REJECTED", "REQUEST_MORE_EVIDENCE", "ESCALATE")
 
 
 class CredenceCredit(gl.Contract):
@@ -38,8 +44,7 @@ class CredenceCredit(gl.Contract):
             raise Exception("Pool already exists")
         pool = {
             "pool_id": pool_id,
-            "lender_address": 
-          str(gl.message.sender_address),
+            "lender_address": str(gl.message.sender_address),
             "pool_name": name,
             "description": description,
             "policy_id": "",
@@ -180,26 +185,28 @@ class CredenceCredit(gl.Contract):
         policy_raw = self.policies.get(pool.get("policy_id", ""))
         policy = json.loads(policy_raw) if policy_raw else {}
         packet = review.get("packet", {})
-        requested = review.get("requested_amount_native", 0)
-        available = pool.get("available_native_liquidity", 0)
+        requested = int(review.get("requested_amount_native", 0))
+        available = int(pool.get("available_native_liquidity", 0))
 
-        prompt = f"""You are a credit arbitration system for native GEN lending. Evaluate this borrower against the lender policy.
+        prompt = f"""You are a credit arbitration engine for a GEN-native lending protocol.
 
-POOL AVAILABLE (wei): {available}
-REQUESTED (wei): {requested}
-LENDER POLICY: {json.dumps(policy)}
-BORROWER PACKET: {json.dumps(packet)}
+POOL AVAILABLE LIQUIDITY (wei): {available}
+REQUESTED LOAN AMOUNT (wei): {requested}
+LENDER RISK POLICY: {json.dumps(policy)}
+BORROWER REPUTATION PACKET: {json.dumps(packet)}
 
 Rules:
 - Never discriminate on protected characteristics
-- Base only on evidence quality, repayment history, wallet behavior, loan purpose, policy match
-- approved_amount_native must not exceed min(available, requested)
-- trust_score 0-100
+- Base decision only on: evidence quality, repayment history, wallet behaviour, loan purpose, policy match
+- approved_amount_native must not exceed min(available, requested); set to 0 if not approving
+- trust_score must be an integer 0-100
+- fraud_flag must be true or false
+- confidence must be an integer 0-100
 
-Output ONLY valid compact JSON, no extra text:
-{{"verdict":"APPROVE","risk_band":"LOW","trust_score":75,"approved_amount_native":{min(requested, available)},"requires_more_evidence":false,"red_flags_summary":"","missing_evidence_summary":"","consensus_memo":"Borrower demonstrates credible repayment capacity."}}
+Output ONLY a single line of valid compact JSON with exactly these keys:
+{{"verdict":"APPROVE","risk_band":"LOW","trust_score":75,"approved_amount_native":{min(requested, available)},"requires_more_evidence":false,"fraud_flag":false,"confidence":85,"red_flags_summary":"","missing_evidence_summary":"","consensus_memo":"Borrower demonstrates credible repayment capacity."}}
 
-Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCALATE"""
+Allowed verdict values: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCALATE"""
 
         def _leader():
             return gl.nondet.exec_prompt(prompt)
@@ -214,12 +221,12 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
             except Exception:
                 return False
 
-        result = gl.run_nondet_unsafe(_leader, _validator)
+        result = gl.vm.run_nondet_unsafe(_leader, _validator)
 
         try:
             out = json.loads(result)
             verdict = out.get("verdict", "REJECT")
-            if verdict not in ("APPROVE", "APPROVE_LIMITED", "REQUEST_MORE_EVIDENCE", "REJECT", "ESCALATE"):
+            if verdict not in REVIEW_VERDICTS:
                 verdict = "REJECT"
             trust_score = max(0, min(100, int(out.get("trust_score", 0))))
             approved = int(out.get("approved_amount_native", 0))
@@ -245,6 +252,8 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
         review["trust_score"] = trust_score
         review["approved_amount_native"] = approved
         review["requires_more_evidence"] = bool(out.get("requires_more_evidence", False))
+        review["fraud_flag"] = bool(out.get("fraud_flag", False))
+        review["confidence"] = max(0, min(100, int(out.get("confidence", 0))))
         review["red_flags_summary"] = str(out.get("red_flags_summary", ""))[:400]
         review["missing_evidence_summary"] = str(out.get("missing_evidence_summary", ""))[:400]
         review["consensus_memo"] = str(out.get("consensus_memo", ""))[:800]
@@ -402,16 +411,16 @@ Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCAL
         loan_raw = self.loans.get(review["loan_id"])
         loan = json.loads(loan_raw) if loan_raw else {}
 
-        prompt = f"""Evaluate this loan default. The lender opened a default review and the borrower may have responded. Output ONLY valid compact JSON.
+        prompt = f"""You are a loan default arbitration engine.
 
 LOAN DETAILS: {json.dumps(loan)}
-DEFAULT REASON: {review['reason']}
+DEFAULT REASON (lender): {review['reason']}
 BORROWER RESPONSE: {review['borrower_response']}
 
-Allowed verdicts: DEFAULT_CONFIRMED, DEFAULT_DISPUTED, DEFAULT_CURED, ESCALATE
+Output ONLY a single line of valid compact JSON with exactly these keys:
+{{"verdict":"DEFAULT_CONFIRMED","severity":"MEDIUM","borrower_fault_level":"HIGH","can_be_cured":false,"memo":"Brief explanation."}}
 
-Output ONLY valid compact JSON:
-{{"verdict":"DEFAULT_CONFIRMED","severity":"MEDIUM","borrower_fault_level":"HIGH","can_be_cured":false,"memo":"Brief explanation."}}"""
+Allowed verdict values: DEFAULT_CONFIRMED, DEFAULT_DISPUTED, DEFAULT_CURED, ESCALATE"""
 
         def _leader():
             return gl.nondet.exec_prompt(prompt)
@@ -426,11 +435,12 @@ Output ONLY valid compact JSON:
             except Exception:
                 return False
 
-        result = gl.run_nondet_unsafe(_leader, _validator)
+        result = gl.vm.run_nondet_unsafe(_leader, _validator)
+
         try:
             out = json.loads(result)
             verdict = out.get("verdict", "DEFAULT_CONFIRMED")
-            if verdict not in ("DEFAULT_CONFIRMED", "DEFAULT_DISPUTED", "DEFAULT_CURED", "ESCALATE"):
+            if verdict not in DEFAULT_VERDICTS:
                 verdict = "DEFAULT_CONFIRMED"
         except Exception:
             out = {}
@@ -503,16 +513,16 @@ Output ONLY valid compact JSON:
             original_raw = self.defaults.get(appeal["target_id"])
         original = json.loads(original_raw) if original_raw else {}
 
-        prompt = f"""Evaluate this appeal. Compare new evidence against the original decision. Output ONLY valid compact JSON.
+        prompt = f"""You are an appeal arbitration engine for a lending protocol.
 
 ORIGINAL DECISION: {json.dumps(original)}
 OLD VERDICT: {appeal['old_verdict']}
-NEW EVIDENCE: {appeal['new_evidence_summary']}
+NEW EVIDENCE SUBMITTED: {appeal['new_evidence_summary']}
 
-Allowed verdicts: APPEAL_UPHELD, APPEAL_REJECTED, REQUEST_MORE_EVIDENCE, ESCALATE
+Output ONLY a single line of valid compact JSON with exactly these keys:
+{{"verdict":"APPEAL_REJECTED","changed_original_decision":false,"requires_more_evidence":false,"memo":"Brief explanation."}}
 
-Output ONLY valid compact JSON:
-{{"verdict":"APPEAL_REJECTED","changed_original_decision":false,"requires_more_evidence":false,"memo":"Brief explanation."}}"""
+Allowed verdict values: APPEAL_UPHELD, APPEAL_REJECTED, REQUEST_MORE_EVIDENCE, ESCALATE"""
 
         def _leader():
             return gl.nondet.exec_prompt(prompt)
@@ -527,11 +537,12 @@ Output ONLY valid compact JSON:
             except Exception:
                 return False
 
-        result = gl.run_nondet_unsafe(_leader, _validator)
+        result = gl.vm.run_nondet_unsafe(_leader, _validator)
+
         try:
             out = json.loads(result)
             verdict = out.get("verdict", "APPEAL_REJECTED")
-            if verdict not in ("APPEAL_UPHELD", "APPEAL_REJECTED", "REQUEST_MORE_EVIDENCE", "ESCALATE"):
+            if verdict not in APPEAL_VERDICTS:
                 verdict = "APPEAL_REJECTED"
         except Exception:
             out = {}
@@ -549,7 +560,7 @@ Output ONLY valid compact JSON:
                 review = json.loads(self.reviews[target_id])
                 review["status"] = "APPROVED"
                 review["verdict"] = "APPROVE"
-                review["consensus_memo"] = f"Appeal upheld: {str(out.get('memo',''))[:200]}"
+                review["consensus_memo"] = f"Appeal upheld: {str(out.get('memo', ''))[:200]}"
                 self.reviews[target_id] = json.dumps(review)
 
     # ── View Methods ───────────────────────────────────────────────────────────
