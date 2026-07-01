@@ -201,7 +201,7 @@ Output ONLY valid compact JSON, no extra text:
 
 Allowed verdicts: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT, ESCALATE"""
 
-        result = gl.exec_prompt(prompt)
+        result = gl.nondet.exec_prompt(prompt)
 
         try:
             out = json.loads(result)
@@ -400,7 +400,7 @@ Allowed verdicts: DEFAULT_CONFIRMED, DEFAULT_DISPUTED, DEFAULT_CURED, ESCALATE
 Output ONLY valid compact JSON:
 {{"verdict":"DEFAULT_CONFIRMED","severity":"MEDIUM","borrower_fault_level":"HIGH","can_be_cured":false,"memo":"Brief explanation."}}"""
 
-        result = gl.exec_prompt(prompt)
+        result = gl.nondet.exec_prompt(prompt)
         try:
             out = json.loads(result)
             verdict = out.get("verdict", "DEFAULT_CONFIRMED")
@@ -488,7 +488,7 @@ Allowed verdicts: APPEAL_UPHELD, APPEAL_REJECTED, REQUEST_MORE_EVIDENCE, ESCALAT
 Output ONLY valid compact JSON:
 {{"verdict":"APPEAL_REJECTED","changed_original_decision":false,"requires_more_evidence":false,"memo":"Brief explanation."}}"""
 
-        result = gl.exec_prompt(prompt)
+        result = gl.nondet.exec_prompt(prompt)
         try:
             out = json.loads(result)
             verdict = out.get("verdict", "APPEAL_REJECTED")
