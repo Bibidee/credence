@@ -17,6 +17,7 @@ APPEAL_VERDICTS = ("APPEAL_UPHELD", "APPEAL_REJECTED", "REQUEST_MORE_EVIDENCE", 
 
 
 class CredenceCredit(gl.Contract):
+    # Data stores
     pools: TreeMap[str, str]
     policies: TreeMap[str, str]
     borrowers: TreeMap[str, str]
@@ -25,6 +26,14 @@ class CredenceCredit(gl.Contract):
     loans: TreeMap[str, str]
     defaults: TreeMap[str, str]
     appeals: TreeMap[str, str]
+
+    # On-chain index lists (DynArray of IDs for enumeration)
+    pool_ids: DynArray[str]
+    borrower_ids: DynArray[str]
+    review_ids: DynArray[str]
+    loan_ids: DynArray[str]
+    default_ids: DynArray[str]
+    appeal_ids: DynArray[str]
 
     def __init__(self) -> None:
         self.pools = TreeMap()
@@ -35,6 +44,12 @@ class CredenceCredit(gl.Contract):
         self.loans = TreeMap()
         self.defaults = TreeMap()
         self.appeals = TreeMap()
+        self.pool_ids = DynArray()
+        self.borrower_ids = DynArray()
+        self.review_ids = DynArray()
+        self.loan_ids = DynArray()
+        self.default_ids = DynArray()
+        self.appeal_ids = DynArray()
 
     # ── Pool Management ────────────────────────────────────────────────────────
 
@@ -58,6 +73,7 @@ class CredenceCredit(gl.Contract):
             "updated_at": str(_now()),
         }
         self.pools[pool_id] = json.dumps(pool)
+        self.pool_ids.append(pool_id)
 
     @gl.public.write.payable
     def deposit_to_pool(self, pool_id: str, amount_wei: int) -> None:
@@ -131,6 +147,7 @@ class CredenceCredit(gl.Contract):
         }
         self.borrowers[borrower_id] = json.dumps(borrower)
         self.wallet_to_borrower[str(gl.message.sender_address)] = borrower_id
+        self.borrower_ids.append(borrower_id)
 
     # ── Credit Review ──────────────────────────────────────────────────────────
 
@@ -164,6 +181,8 @@ class CredenceCredit(gl.Contract):
             "trust_score": None,
             "approved_amount_native": 0,
             "requires_more_evidence": False,
+            "fraud_flag": False,
+            "confidence": 0,
             "red_flags_summary": "",
             "missing_evidence_summary": "",
             "consensus_memo": "",
@@ -171,6 +190,7 @@ class CredenceCredit(gl.Contract):
             "evaluated_at": None,
         }
         self.reviews[review_id] = json.dumps(review)
+        self.review_ids.append(review_id)
 
     @gl.public.write
     def evaluate_credit_review(self, review_id: str) -> None:
@@ -307,6 +327,7 @@ Allowed verdict values: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT,
 
         self.loans[loan_id] = json.dumps(loan)
         self.pools[pool_id] = json.dumps(pool)
+        self.loan_ids.append(loan_id)
 
     @gl.public.write
     def draw_loan(self, loan_id: str) -> None:
@@ -398,6 +419,7 @@ Allowed verdict values: APPROVE, APPROVE_LIMITED, REQUEST_MORE_EVIDENCE, REJECT,
             "evaluated_at": None,
         }
         self.defaults[default_id] = json.dumps(record)
+        self.default_ids.append(default_id)
         loan["status"] = "DEFAULT_REVIEW"
         self.loans[loan_id] = json.dumps(loan)
 
@@ -498,6 +520,7 @@ Allowed verdict values: DEFAULT_CONFIRMED, DEFAULT_DISPUTED, DEFAULT_CURED, ESCA
             "evaluated_at": None,
         }
         self.appeals[appeal_id] = json.dumps(appeal)
+        self.appeal_ids.append(appeal_id)
 
     @gl.public.write
     def evaluate_appeal(self, appeal_id: str) -> None:
@@ -563,7 +586,104 @@ Allowed verdict values: APPEAL_UPHELD, APPEAL_REJECTED, REQUEST_MORE_EVIDENCE, E
                 review["consensus_memo"] = f"Appeal upheld: {str(out.get('memo', ''))[:200]}"
                 self.reviews[target_id] = json.dumps(review)
 
-    # ── View Methods ───────────────────────────────────────────────────────────
+    # ── Index / Enumeration Views ──────────────────────────────────────────────
+
+    @gl.public.view
+    def get_pool_count(self) -> int:
+        return len(self.pool_ids)
+
+    @gl.public.view
+    def get_pool_id(self, index: int) -> str:
+        return self.pool_ids[int(index)]
+
+    @gl.public.view
+    def get_borrower_count(self) -> int:
+        return len(self.borrower_ids)
+
+    @gl.public.view
+    def get_borrower_id(self, index: int) -> str:
+        return self.borrower_ids[int(index)]
+
+    @gl.public.view
+    def get_review_count(self) -> int:
+        return len(self.review_ids)
+
+    @gl.public.view
+    def get_review_id(self, index: int) -> str:
+        return self.review_ids[int(index)]
+
+    @gl.public.view
+    def get_loan_count(self) -> int:
+        return len(self.loan_ids)
+
+    @gl.public.view
+    def get_loan_id(self, index: int) -> str:
+        return self.loan_ids[int(index)]
+
+    @gl.public.view
+    def get_default_count(self) -> int:
+        return len(self.default_ids)
+
+    @gl.public.view
+    def get_default_id(self, index: int) -> str:
+        return self.default_ids[int(index)]
+
+    @gl.public.view
+    def get_appeal_count(self) -> int:
+        return len(self.appeal_ids)
+
+    @gl.public.view
+    def get_appeal_id(self, index: int) -> str:
+        return self.appeal_ids[int(index)]
+
+    @gl.public.view
+    def get_dashboard_stats(self) -> str:
+        total_deposited = 0
+        total_available = 0
+        total_drawn = 0
+        total_repaid = 0
+        active_loans = 0
+        pending_reviews = 0
+
+        for pid in self.pool_ids:
+            raw = self.pools.get(pid)
+            if raw:
+                p = json.loads(raw)
+                total_deposited += p.get("pool_native_balance", 0)
+                total_available += p.get("available_native_liquidity", 0)
+                total_drawn += p.get("total_drawn_native", 0)
+                total_repaid += p.get("total_repaid_native", 0)
+
+        for lid in self.loan_ids:
+            raw = self.loans.get(lid)
+            if raw:
+                l = json.loads(raw)
+                if l.get("status") in ("ACTIVE", "PARTIALLY_REPAID"):
+                    active_loans += 1
+
+        for rid in self.review_ids:
+            raw = self.reviews.get(rid)
+            if raw:
+                r = json.loads(raw)
+                if r.get("status") == "PENDING":
+                    pending_reviews += 1
+
+        return json.dumps({
+            "pool_count": len(self.pool_ids),
+            "borrower_count": len(self.borrower_ids),
+            "review_count": len(self.review_ids),
+            "loan_count": len(self.loan_ids),
+            "default_count": len(self.default_ids),
+            "appeal_count": len(self.appeal_ids),
+            "total_deposited": total_deposited,
+            "total_available": total_available,
+            "total_drawn": total_drawn,
+            "total_repaid": total_repaid,
+            "active_loans": active_loans,
+            "pending_reviews": pending_reviews,
+        })
+
+    # ── Object Views ───────────────────────────────────────────────────────────
 
     @gl.public.view
     def get_pool(self, pool_id: str) -> str:

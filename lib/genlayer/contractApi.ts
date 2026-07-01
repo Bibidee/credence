@@ -33,6 +33,68 @@ async function write(fn: string, args: unknown[], value?: bigint): Promise<strin
   return hash as string;
 }
 
+// ── Index reads ────────────────────────────────────────────────────────────
+
+export async function apiGetPoolCount(): Promise<number> {
+  const r = await read<number>("get_pool_count", []);
+  return typeof r === "string" ? parseInt(r, 10) : Number(r);
+}
+
+export async function apiGetPoolId(index: number): Promise<string> {
+  return read<string>("get_pool_id", [index]);
+}
+
+export async function apiGetBorrowerCount(): Promise<number> {
+  const r = await read<number>("get_borrower_count", []);
+  return typeof r === "string" ? parseInt(r, 10) : Number(r);
+}
+
+export async function apiGetBorrowerId(index: number): Promise<string> {
+  return read<string>("get_borrower_id", [index]);
+}
+
+export async function apiGetReviewCount(): Promise<number> {
+  const r = await read<number>("get_review_count", []);
+  return typeof r === "string" ? parseInt(r, 10) : Number(r);
+}
+
+export async function apiGetReviewId(index: number): Promise<string> {
+  return read<string>("get_review_id", [index]);
+}
+
+export async function apiGetLoanCount(): Promise<number> {
+  const r = await read<number>("get_loan_count", []);
+  return typeof r === "string" ? parseInt(r, 10) : Number(r);
+}
+
+export async function apiGetLoanId(index: number): Promise<string> {
+  return read<string>("get_loan_id", [index]);
+}
+
+export async function apiGetDefaultCount(): Promise<number> {
+  const r = await read<number>("get_default_count", []);
+  return typeof r === "string" ? parseInt(r, 10) : Number(r);
+}
+
+export async function apiGetDefaultId(index: number): Promise<string> {
+  return read<string>("get_default_id", [index]);
+}
+
+export async function apiGetAppealCount(): Promise<number> {
+  const r = await read<number>("get_appeal_count", []);
+  return typeof r === "string" ? parseInt(r, 10) : Number(r);
+}
+
+export async function apiGetAppealId(index: number): Promise<string> {
+  return read<string>("get_appeal_id", [index]);
+}
+
+export async function apiGetDashboardStats(): Promise<Record<string, number>> {
+  const r = await read<string>("get_dashboard_stats", []);
+  const str = typeof r === "string" ? r : JSON.stringify(r);
+  return JSON.parse(str);
+}
+
 // ── Pool ───────────────────────────────────────────────────────────────────
 
 export async function apiGetPool(poolId: string): Promise<LenderPool | null> {

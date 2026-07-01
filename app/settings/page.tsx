@@ -2,12 +2,15 @@
 
 import AppShell from "@/components/layout/AppShell";
 import { useWallet } from "@/lib/context/WalletContext";
+import { useCredence } from "@/lib/context/CredenceContext";
 import { shortAddress } from "@/lib/utils/format";
-import { Settings, Wallet, Shield, Bell, AlertTriangle } from "lucide-react";
+import { Settings, Wallet, Shield, Bell, AlertTriangle, Trash2 } from "lucide-react";
 import Button from "@/components/ui/Button";
+import ContractDebugPanel from "@/components/debug/ContractDebugPanel";
 
 export default function SettingsPage() {
   const { address, connect, disconnect, switchNetwork, isConnecting } = useWallet();
+  const { clearLocalCache } = useCredence();
 
   return (
     <AppShell title="Settings">
@@ -82,6 +85,25 @@ export default function SettingsPage() {
             <p>Only profile hashes, attestation hashes, evidence summaries, and GenLayer-backed credit decisions are stored.</p>
             <p>You can appeal incomplete or stale reviews at any time from the Appeals page.</p>
           </div>
+        </div>
+
+        {/* Contract Diagnostic */}
+        <ContractDebugPanel />
+
+        {/* Cache */}
+        <div className="panel p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Trash2 size={15} className="text-[#F2A93B]" />
+            <h3 className="font-heading font-bold text-[15px]">Local Cache</h3>
+          </div>
+          <p className="text-[13px] text-muted-ink mb-3">
+            The app caches recently-seen IDs in localStorage, scoped to the current contract address and chain.
+            After redeploying the contract, clear this cache so stale IDs from the old contract are removed.
+            The dashboard will repopulate from the new contract automatically.
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => { clearLocalCache(); window.location.reload(); }}>
+            Clear cache for this contract
+          </Button>
         </div>
 
         {/* Danger zone */}
